@@ -52,6 +52,7 @@
         "modules/Movement/Sprint.js",
         "modules/Movement/NoJumpDelay.js",
         "modules/Player/AntiAim.js",
+        "modules/Player/CustomName.js",
         "modules/Visual/Watermark.js",
         "modules/Visual/ClickGui.js",
         "modules/Visual/Interface.js",
@@ -83,6 +84,7 @@
         "modules/Movement/Sprint.js",
         "modules/Movement/NoJumpDelay.js",
         "modules/Player/AntiAim.js",
+        "modules/Player/CustomName.js",
         "modules/Visual/ESP.js",
         "modules/Misc/UnLock.js"
       ],
