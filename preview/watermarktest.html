@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Watermark 7 Days + render loop resilience</title>
+<style>
+  html,body{margin:0;padding:0;background:#05060a;color:#d7e6ff;font:13px/1.5 monospace;overflow:hidden}
+  #out{position:fixed;left:12px;top:10px;white-space:pre-wrap;z-index:2147483647}
+  #bg{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;opacity:0.25;z-index:0}
+</style>
+</head>
+<body>
+<img id="bg" src="bg.png">
+<pre id="out"></pre>
+<script src="../extension/boot.js"></script>
+<script src="../js/core.js"></script>
+<script src="../modules/Visual/Interface.js"></script>
+<script src="../modules/Visual/ClickGui.js"></script>
+<script src="../modules/Visual/Watermark.js"></script>
+<script src="../js/main.js"></script>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const lines = [];
+  const record = (ok, label, extra) => {
+    lines.push(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
+    out.textContent = lines.join('\n');
+  };
+  window.addEventListener('error', (e) => record(false, 'uncaught error', e.message));
+
+  const wm = getMod('Watermark');
+  const styleSetting = wm.settings.find((s) => s.n === 'Style');
+
+  const painted = () => {
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let count = 0;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] > 8) count += 1;
+      if (count > 1000) return count;
+    }
+    return count;
+  };
+
+  await new Promise((r) => setTimeout(r, 150));
+
+  /* 1. 7 Days 不再抛错（旧代码在这里 ReferenceError: sevenImg is not defined） */
+  styleSetting.v = 1;
+  let threw = null;
+  ctx.clearRect(0, 0, W, H);
+  try {
+    for (let i = 0; i < 30; i += 1) wm.onRender(0.016);
+  } catch (error) {
+    threw = error;
+  }
+  record(!threw, '7 Days style renders without throwing', threw ? String(threw) : '');
+  record(Number.isFinite(wm.anim), 'watermark anim stays a finite number', 'anim=' + wm.anim);
+  record(painted() > 1000, '7 Days style actually paints a plate', 'px=' + painted());
+
+  /* 2. 切回 Solstice 仍然正常 */
+  styleSetting.v = 0;
+  let threw2 = null;
+  ctx.clearRect(0, 0, W, H);
+  try {
+    for (let i = 0; i < 5; i += 1) wm.onRender(0.016);
+  } catch (error) {
+    threw2 = error;
+  }
+  record(!threw2, 'Solstice style still renders', threw2 ? String(threw2) : '');
+  record(painted() > 1000, 'Solstice style paints', 'px=' + painted());
+
+  /* 3. 7 Days 下主循环必须活着（手动驱动帧，不依赖 headless 的 rAF） */
+  styleSetting.v = 1;
+  const stamp = NOW_MS;
+  const base = performance.now();
+  for (let i = 0; i < 6; i += 1) frame(base + i * 16);
+  record(NOW_MS !== stamp, '7 Days mode keeps the render loop alive', `${stamp} -> ${NOW_MS}`);
+
+  /* 4. 某个模块抛错不能拖垮整个循环 */
+  RENDER_MODS.unshift({ name: 'Boom', onRender() { throw new Error('boom'); } });
+  const stamp2 = NOW_MS;
+  ctx.clearRect(0, 0, W, H);
+  let threw3 = null;
+  try {
+    frame(base + 200);
+    frame(base + 216);
+    frame(base + 232);
+  } catch (error) {
+    threw3 = error;
+  }
+  record(!threw3, 'frame() itself never throws out', threw3 ? String(threw3) : '');
+  record(NOW_MS !== stamp2, 'a throwing module does not kill the loop', `${stamp2} -> ${NOW_MS}`);
+  record(painted() > 1000, 'other modules keep drawing after the throw', 'px=' + painted());
+
+  out.textContent = lines.join('\n');
+  document.title = lines.some((l) => l.startsWith('FAIL')) ? 'FAIL' : 'ALL-PASS';
+})();
+</script>
+</body>
+</html>

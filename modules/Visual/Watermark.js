@@ -8,13 +8,9 @@ function drawWatermark(dt){
 
   const stS=wm.settings.find(s=>s.n==='Style');
   const style=stS?(stS.vals[stS.v]||'Solstice'):'Solstice';
-  if(style==='7 Days'&&sevenImg&&sevenImg.complete&&sevenImg.naturalWidth){
-    const w=sevenImg.naturalWidth, h=sevenImg.naturalHeight;
-    hudSetSize('Watermark',w,h);
-    if(wmGlow()) glowRect(px-10,py-10,w+20,h+20,0,[255,0,0],wm.anim*0.9,40);
-    ctx.globalAlpha=wm.anim;
-    ctx.drawImage(sevenImg,px,py,w,h);
-    ctx.globalAlpha=1;
+
+  if(style==='7 Days'){
+    drawSevenDaysWatermark(px,py,layout,wm.anim);
     ctx.restore();
     return;
   }
@@ -51,11 +47,44 @@ function drawWatermark(dt){
 }
 function wmGlow(){const s=getMod('Watermark').settings.find(x=>x.n==='Glow');return s?s.v===1:true;}
 
+/* 7 Days 风格：纯 canvas 复刻的白色铭牌，不依赖任何外部图片资源 */
+function drawSevenDaysWatermark(px,py,layout,a){
+  const label='7DAYS';
+  const size=30;
+  setFont(size,true);
+  const textW=tw(label,size,true);
+  const padX=13, padY=7;
+  const w=Math.ceil(textW+padX*2), h=Math.ceil(size+padY*2);
+
+  hudSetSize('Watermark',w,h);
+
+  ctx.save();
+  ctx.shadowColor=`rgba(0,0,0,${(0.45*a).toFixed(3)})`;
+  ctx.shadowBlur=12;
+  ctx.shadowOffsetY=2;
+  fillRR(px,py,w,h,4,[247,247,249],0.95*a,CORNER_TOP|CORNER_BOTTOM);
+  ctx.restore();
+
+  /* 左侧红色竖条 + 底部下划线 */
+  fillRR(px+padX,py+padY+2,3,size-4,1,[232,58,72],a,CORNER_TOP|CORNER_BOTTOM);
+  fillRR(px+padX,py+h-6,textW*0.32,2,0,[232,58,72],a,0);
+
+  text(px+padX+9,py+padY-1,label,[20,20,24],a,false,true,size);
+
+  /* 右上角的细描边，避免大白块糊成一片 */
+  ctx.save();
+  ctx.strokeStyle=`rgba(12,12,16,${(0.12*a).toFixed(3)})`;
+  ctx.lineWidth=1;
+  rrPath(px+0.5,py+0.5,w-1,h-1,4,CORNER_TOP|CORNER_BOTTOM);
+  ctx.stroke();
+  ctx.restore();
+}
+
 register({
   name:"Watermark",
   desc:"Displays a watermark on the screen",
   cat:"Visual",
-  nm:{l:"watermark",ls:"watermark",n:"Watermark",ns:"Watermark"},
+  nm:{l:"watermark",ls:"water mark",n:"Watermark",ns:"Watermark"},
   disp:"Style",
   settings:[
     {t:"e",n:"Style",d:"The style of the watermark.",v:0,vals:["Solstice","7 Days"]},

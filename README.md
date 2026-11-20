@@ -68,6 +68,7 @@ node preview/bgtest.mjs         # 后台 service worker 单测
 - `preview/configtest.html` 配置 / HUD / 按键快照往返
 - `preview/tptest.html` 第三人称相机推拉
 - `preview/keytest.html` 修饰键匹配、侧键、关页确认
+- `preview/watermarktest.html` Watermark 两种风格 + 渲染循环容错
 
 ## License
 

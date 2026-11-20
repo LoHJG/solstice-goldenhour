@@ -69,33 +69,50 @@ if(hintEl){
 }
 
 let lastTs=0;
+
+/* 单个模块抛错绝不能带走整个渲染循环 */
+function renderModule(mod,dt){
+  try{
+    mod.onRender(dt);
+  }catch(error){
+    if(!mod.__renderErrorLogged){
+      mod.__renderErrorLogged=true;
+      console.warn(`[Solstice] ${mod.name} render failed`,error);
+    }
+  }
+}
+
 function frame(ts){
-  NOW_MS=ts;
-  let dt=(ts-lastTs)/1000; lastTs=ts;
-  if(!isFinite(dt)||dt<=0) dt=0.016;
-  dt=Math.min(dt,0.05);
+  try{
+    NOW_MS=ts;
+    let dt=(ts-lastTs)/1000; lastTs=ts;
+    if(!isFinite(dt)||dt<=0) dt=0.016;
+    dt=Math.min(dt,0.05);
 
-  const e=S.ease;
-  if(S.open) e.inc(dt*18/10); else e.dec(dt*2*18/10);
+    const e=S.ease;
+    if(S.open) e.inc(dt*18/10); else e.dec(dt*2*18/10);
 
-  const animMode=(getMod('ClickGui').settings.find(s=>s.n==='Animation')||{v:1}).v;
-  let inScale=animMode===1?(S.open?e.outElastic():e.outBack()):clamp(e.outExpo(),0,0.996);
-  if(e.p>=1) inScale=0.996;
-  S.anim=lerp(0,1,e.outExpo());
-  S.inScale=inScale;
+    const animMode=(getMod('ClickGui').settings.find(s=>s.n==='Animation')||{v:1}).v;
+    let inScale=animMode===1?(S.open?e.outElastic():e.outBack()):clamp(e.outExpo(),0,0.996);
+    if(e.p>=1) inScale=0.996;
+    S.anim=lerp(0,1,e.outExpo());
+    S.inScale=inScale;
 
-  const a=S.anim, s=Math.max(0.0001,inScale*K);
-  getMod('ClickGui').on=S.open;
+    const clickGui=getMod('ClickGui');
+    if(clickGui) clickGui.on=S.open;
 
-  ctx.clearRect(0,0,W,H);
-  RENDER_MODS.forEach(m=>m.onRender(dt));
+    ctx.clearRect(0,0,W,H);
+    for(const m of RENDER_MODS) renderModule(m,dt);
 
-  S.clicked=[false,false,false];
-  S.wheel=0;
-  if(!S.down[0]&&!S.down[2]) S.dragSetting=null;
-  MODS.forEach(m=>{m.__clicked=false;});
-
-  requestAnimationFrame(frame);
+    S.clicked=[false,false,false];
+    S.wheel=0;
+    if(!S.down[0]&&!S.down[2]) S.dragSetting=null;
+    MODS.forEach(m=>{m.__clicked=false;});
+  }catch(error){
+    console.error('[Solstice] frame error',error);
+  }finally{
+    requestAnimationFrame(frame);
+  }
 }
 
 buildModules();
