@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Solstice keybind tests</title>
+<link rel="stylesheet" href="../extension/overlay.css">
+<style>
+  html,body{margin:0;padding:0;background:#05060a;color:#d7e6ff;font:13px/1.5 monospace;overflow:hidden}
+  #out{position:fixed;left:12px;top:10px;white-space:pre-wrap;z-index:2147483647}
+</style>
+</head>
+<body>
+<pre id="out"></pre>
+<script src="../extension/boot.js"></script>
+<script src="../js/core.js"></script>
+<script src="../modules/Visual/Interface.js"></script>
+<script src="../modules/Visual/Arraylist.js"></script>
+<script src="../modules/Visual/Watermark.js"></script>
+<script src="../modules/Visual/ClickGui.js"></script>
+<script src="../modules/Visual/Notifications.js"></script>
+<script src="../modules/Visual/ThirdPerson.js"></script>
+<script src="../modules/Misc/InputGuard.js"></script>
+<script src="../js/main.js"></script>
+<script src="../js/commands.js"></script>
+<script src="../extension/page.js"></script>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const lines = [];
+  const record = (ok, label, extra) => {
+    lines.push(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
+    out.textContent = lines.join('\n');
+  };
+
+  window.addEventListener('error', (e) => record(false, 'runtime error', e.message));
+  await new Promise((r) => setTimeout(r, 120));
+
+  apiOff();
+  function apiOff() {
+    if (window.SolsticeConfig) window.SolsticeConfig.autoSave = false;
+  }
+
+  const wm = getMod('Watermark');
+  const fire = (init) => {
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+    window.dispatchEvent(event);
+    return event;
+  };
+  const fireMouse = (button, init = {}) => {
+    const event = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button, ...init });
+    window.dispatchEvent(event);
+    return event;
+  };
+
+  /* 1. 纯键 A 触发绑在 A 上的模块，并吞掉事件 */
+  wm.key = 'KeyA';
+  const on0 = wm.on;
+  let e1 = fire({ code: 'KeyA', key: 'a' });
+  record(wm.on !== on0, 'plain A toggles the module bound to A', `on=${wm.on}`);
+  record(e1.defaultPrevented, 'handled key gets preventDefault', `defaultPrevented=${e1.defaultPrevented}`);
+
+  /* 2. Ctrl+A 不再误触 */
+  const on1 = wm.on;
+  let e2 = fire({ code: 'KeyA', key: 'a', ctrlKey: true });
+  record(wm.on === on1, 'Ctrl+A no longer triggers the A bind', `on=${wm.on}`);
+  record(!e2.defaultPrevented, 'Ctrl+A is left to the browser (not swallowed as a bind)');
+
+  /* 3. Shift 组合可以绑，也可以匹配 */
+  wm.key = window.SolsticeKeys.parseKey('shift+a');
+  const on2 = wm.on;
+  fire({ code: 'KeyA', key: 'A', shiftKey: true });
+  record(wm.on !== on2, 'Shift+A triggers a Shift+A bind', `key=${wm.key}`);
+  const on3 = wm.on;
+  fire({ code: 'KeyA', key: 'a' });
+  record(wm.on === on3, 'plain A does not trigger a Shift+A bind');
+
+  /* 4. Ctrl / Alt / Win 组合绑定被拒绝 */
+  const before = wm.key;
+  window.sol('bind Watermark ctrl+a');
+  record(wm.key === before, 'ctrl+a bind rejected by the command', `key=${wm.key}`);
+  const parsed = window.SolsticeKeys.parseKey('ctrl+shift+7');
+  record(parsed === 'Ctrl+Shift+Digit7', 'modifier prefixes parse into a canonical bind', String(parsed));
+
+  /* 5. 鼠标侧键绑定 + 吞掉（防浏览器后退） */
+  wm.key = 'Mouse4';
+  const on4 = wm.on;
+  const e4 = fireMouse(3);
+  record(wm.on !== on4, 'Mouse4 triggers the module', `on=${wm.on}`);
+  record(e4.defaultPrevented, 'Mouse4 click is swallowed (no browser back)');
+
+  /* 6. Mouse Binds 关掉后侧键不再触发 */
+  getMod('InputGuard').settings.find((s) => s.n === 'Mouse Binds').v = 0;
+  const on5 = wm.on;
+  fireMouse(3);
+  record(wm.on === on5, 'Mouse Binds off: side button ignored');
+  getMod('InputGuard').settings.find((s) => s.n === 'Mouse Binds').v = 1;
+
+  /* 7. In Game Only：没在局内时不触发 */
+  getMod('InputGuard').settings.find((s) => s.n === 'In Game Only').v = 1;
+  wm.key = 'KeyA';
+
+  const frame = document.createElement('iframe');
+  frame.src = 'https://www.bilibilitoy.com/toy/golden-hour/index.html';
+  frame.style.cssText = 'position:fixed;left:-9999px;width:2px;height:2px';
+  document.body.appendChild(frame);
+  await new Promise((r) => setTimeout(r, 50));
+
+  const sendPlaying = (playing) => window.dispatchEvent(new MessageEvent('message', {
+    data: { channel: 'solstice-input', type: 'state', playing },
+    origin: 'https://www.bilibilitoy.com',
+    source: frame.contentWindow
+  }));
+
+  sendPlaying(false);
+  const on6 = wm.on;
+  fire({ code: 'KeyA', key: 'a' });
+  record(wm.on === on6, 'In Game Only: binds idle while not in a match');
+  sendPlaying(true);
+  fire({ code: 'KeyA', key: 'a' });
+  record(wm.on !== on6, 'In Game Only: binds fire once the match is running');
+  getMod('InputGuard').settings.find((s) => s.n === 'In Game Only').v = 0;
+
+  /* 8. 标签渲染 */
+  const label = window.SolsticeKeys.keyLabel('Shift+KeyA');
+  record(label === 'Shift+A', 'key label renders modifiers', label);
+  const label2 = window.SolsticeKeys.keyLabel('Mouse5');
+  record(label2 === 'M5', 'mouse bind label', label2);
+
+  /* 9. Ctrl+W 不会命中绑在 W 上的模块 */
+  wm.key = 'KeyW';
+  const onw = wm.on;
+  fire({ code: 'KeyW', key: 'w', ctrlKey: true });
+  record(wm.on === onw, 'Ctrl+W does not toggle a module bound to W');
+
+  /* 10. Guard Close：局内关闭页面前要确认，局外不拦 */
+  const guard = getMod('InputGuard');
+  guard.settings.find((s) => s.n === 'Guard Close').v = 1;
+  sendPlaying(true);
+  guard.onRender(0.016);
+  const ev1 = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(ev1);
+  record(ev1.defaultPrevented, 'Guard Close: closing during a match asks for confirmation');
+  sendPlaying(false);
+  guard.onRender(0.016);
+  const ev2 = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(ev2);
+  record(!ev2.defaultPrevented, 'Guard Close: not armed outside a match');
+
+  out.textContent = lines.join('\n');
+  document.title = lines.some((l) => l.startsWith('FAIL')) ? 'FAIL' : 'ALL-PASS';
+})();
+</script>
+</body>
+</html>

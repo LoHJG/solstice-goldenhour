@@ -26,12 +26,34 @@ window.addEventListener('keydown',e=>{
   }
   if(e.key==='Escape'){
     e.preventDefault();
-    if(S.binding){ S.binding.key=e.key==='Escape'?0:(e.code||e.key); if(window.Solstice?.saveModuleBind) window.Solstice.saveModuleBind(S.binding); S.binding=null; return; }
-    if(S.bindBool){ S.bindBool.key=e.keyCode===27?0:e.keyCode; S.bindBool=null; return; }
+    if(S.binding){ S.binding.key=0; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; return; }
+    if(S.bindBool){ S.bindBool.key=0; S.bindBool=null; return; }
     if(S.picker){ S.picker=null; return; }
     if(S.open){ S.open=false; return; }
   }
+  if(!S.binding&&!S.bindBool) return;
+  const keys=window.SolsticeKeys;
+  const bind=keys?keys.bindFromEvent(e):(e.code||e.key);
+  if(keys&&keys.hasReservedModifier(bind)){
+    console.warn('[Solstice] Ctrl / Alt / Win combos are browser hotkeys - bind a plain key, Shift combo or Mouse4 / Mouse5.');
+    return;
+  }
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if(S.binding){ S.binding.key=bind; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; }
+  else if(S.bindBool){ S.bindBool.key=bind; S.bindBool=null; }
 });
+
+window.addEventListener('mousedown',e=>{
+  if(!S.binding&&!S.bindBool) return;
+  const keys=window.SolsticeKeys;
+  const bind=keys?keys.mouseBindFromEvent(e):'';
+  if(!bind) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if(S.binding){ S.binding.key=bind; window.Solstice?.saveModuleBind?.(S.binding); S.binding=null; }
+  else if(S.bindBool){ S.bindBool.key=bind; S.bindBool=null; }
+},true);
 window.addEventListener('blur',()=>{ S.down=[false,false,false]; S.dragSetting=null; });
 
 function killHint(){

@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fatality splash preview</title>
+<style>
+  @font-face{font-family:"Product Sans";src:url("../assets/fonts/Product-Sans-Bold.ttf") format("truetype");font-weight:700;font-display:block}
+  @font-face{font-family:"Product Sans";src:url("../assets/fonts/Product-Sans.ttf") format("truetype");font-weight:400;font-display:block}
+  html,body{margin:0;padding:0;background:#000;overflow:hidden}
+  #bg{position:fixed;inset:0;width:1600px;height:900px;object-fit:cover;z-index:0}
+  #hud{position:fixed;inset:0;width:1600px;height:900px;z-index:1}
+  #grid{position:fixed;left:0;top:0;width:1600px;height:600px;z-index:5;background:#0b0b0e}
+</style>
+</head>
+<body>
+<img id="bg" src="bg.png">
+<canvas id="hud"></canvas>
+<canvas id="grid" width="1600" height="600"></canvas>
+<script src="../js/core.js"></script>
+<script src="../modules/Visual/Interface.js"></script>
+<script src="../modules/Visual/Fatality.js"></script>
+<script>
+(async () => {
+  const gridEl = document.getElementById('grid');
+  const g0 = gridEl.getContext('2d');
+  const errBox = document.createElement('pre');
+  errBox.style.cssText = 'position:fixed;left:0;top:0;z-index:99;color:#f66;font:14px monospace;background:#000;padding:8px;white-space:pre-wrap;max-width:1560px;margin:0';
+  document.body.appendChild(errBox);
+  const fail = (e) => {
+    errBox.textContent = 'ERR: ' + (e && (e.stack || e.message || e));
+    g0.fillStyle = '#f66';
+    g0.font = '16px monospace';
+    g0.fillText('ERR: ' + (e && (e.stack || e.message || e)), 12, 40);
+  };
+  window.addEventListener('error', (ev) => fail(ev.error || ev.message));
+  try {
+    await document.fonts.load('700 100px "Product Sans"').catch(() => {});
+    await document.fonts.ready;
+
+    buildModules();
+    resize();
+    try { await document.getElementById('bg').decode(); } catch (e) {}
+
+    const mod = getMod('Fatality');
+    const setv = (n, v) => { const s = mod.settings.find((x) => x.n === n); if (s) s.v = v; };
+    setv('Play on inject', 0);
+    setv('Sound', 0);
+
+    const hud = document.getElementById('hud');
+    const bgEl = document.getElementById('bg');
+    const grid = gridEl;
+    const gctx = grid.getContext('2d');
+    const STEP = 1 / 60;
+    const single = new URLSearchParams(location.search).get('t');
+
+    if (single !== null) {
+      grid.width = Math.round(W * DPR);
+      grid.height = Math.round(H * DPR);
+      grid.style.width = W + 'px';
+      grid.style.height = H + 'px';
+      bgEl.style.visibility = 'hidden';
+      if (new URLSearchParams(location.search).get('skulls')) setv('Skulls', 1);
+      window.solsticeSplash(new URLSearchParams(location.search).get('w') || 'FATALITY');
+      const frames = Math.max(1, Math.round(Number(single) / STEP));
+      for (let k = 0; k < frames; k += 1) {
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        ctx.filter = bgEl.style.filter || 'none';
+        ctx.drawImage(bgEl, 0, 0, W, H);
+        ctx.restore();
+        mod.onRender(STEP);
+      }
+      gctx.drawImage(hud, 0, 0, grid.width, grid.height);
+      document.title = 'PREVIEW-READY';
+      window.__previewReady = true;
+      errBox.textContent = 'single t=' + single + ' frames=' + frames + ' W=' + W + ' H=' + H +
+        ' K=' + K.toFixed(3) + ' splash=' + (typeof window.solsticeSplash) +
+        ' bgFilter=' + (bgEl.style.filter || 'none');
+      errBox.style.opacity = '0.55';
+      return;
+    }
+
+    const shots = [0.30, 0.95, 1.55, 1.95, 2.55, 3.35];
+
+    for (let i = 0; i < shots.length; i += 1) {
+      window.solsticeSplash('FATALITY');
+      const frames = Math.max(1, Math.round(shots[i] / STEP));
+      for (let k = 0; k < frames; k += 1) {
+        ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        if (k === 0 || true) {
+          ctx.save();
+          ctx.filter = bgEl.style.filter || 'none';
+          ctx.drawImage(bgEl, 0, 0, W, H);
+          ctx.restore();
+        }        mod.onRender(STEP);
+      }
+      const col = i % 3;
+      const row = (i / 3) | 0;
+      gctx.drawImage(hud, col * 533, row * 300, 533, 300);
+      gctx.fillStyle = 'rgba(0,0,0,0.65)';
+      gctx.fillRect(col * 533, row * 300, 533, 18);
+      gctx.fillStyle = '#9ef';
+      gctx.font = '13px monospace';
+      gctx.fillText(
+        't=' + shots[i].toFixed(2) + 's  W=' + W + ' H=' + H + ' K=' + K.toFixed(3) +
+        ' bg=' + (document.getElementById('bg').naturalWidth || 0),
+        col * 533 + 8, row * 300 + 13
+      );
+    }
+
+    ctx.save();
+    ctx.font = '700 128px "Product Sans", system-ui, sans-serif';
+    window.__probe = ctx.measureText('FATALITY').width;
+    window.__asc = ctx.measureText('H').actualBoundingBoxAscent;
+    ctx.restore();
+    gctx.fillStyle = '#9ef';
+    gctx.font = '13px monospace';
+    gctx.fillText('probe128=' + window.__probe.toFixed(1) + ' ascH=' + window.__asc, 8, 590);
+
+    document.title = 'PREVIEW-READY';
+    window.__previewReady = true;
+  } catch (e) {
+    fail(e);
+  }
+})();
+</script>
+</body>
+</html>

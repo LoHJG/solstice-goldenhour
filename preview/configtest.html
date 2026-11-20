@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Solstice config / bind / HUD tests</title>
+<link rel="stylesheet" href="../extension/overlay.css">
+<style>
+  html,body{margin:0;padding:0;background:#05060a;color:#d7e6ff;font:13px/1.5 monospace;overflow:hidden}
+  #bg{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;z-index:0;opacity:0.25}
+  #out{position:fixed;left:12px;top:10px;z-index:2147483647;white-space:pre-wrap;max-width:1560px}
+  .p{color:#7bffb0}
+  .f{color:#ff6b81}
+</style>
+</head>
+<body>
+<img id="bg" src="bg.png">
+<script src="../extension/boot.js"></script>
+<script src="../js/core.js"></script>
+<script src="../modules/Visual/Interface.js"></script>
+<script src="../modules/Visual/Arraylist.js"></script>
+<script src="../modules/Visual/Watermark.js"></script>
+<script src="../modules/Visual/ClickGui.js"></script>
+<script src="../modules/Visual/Notifications.js"></script>
+<script src="../modules/Visual/Fatality.js"></script>
+<script src="../modules/Visual/ThirdPerson.js"></script>
+<script src="../modules/Player/AntiAim.js"></script>
+<script src="../modules/Misc/Config.js"></script>
+<script src="../js/main.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/commands.js"></script>
+<script src="../extension/page.js"></script>
+<script>
+(async () => {
+  const out = document.createElement('pre');
+  out.id = 'out';
+  document.body.appendChild(out);
+  const lines = [];
+  const record = (ok, label, extra) => {
+    lines.push(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
+    out.innerHTML = lines.join('\n');
+  };
+  window.addEventListener('error', (e) => record(false, 'runtime error', e.message));
+
+  await new Promise((r) => setTimeout(r, 120));
+
+  const api = window.SolsticeConfig;
+  record(Boolean(api), 'config engine exposed (window.SolsticeConfig)');
+  if (!api) return;
+
+  api.autoSave = false;
+  const cfgMod = getMod('Config');
+  const autoSetting = cfgMod.settings.find((s) => s.n === 'Autosave');
+  if (autoSetting) autoSetting.v = 0;
+
+  /* 1. 首次启动自动建立 Default */
+  record(api.list().includes('Default'), 'Default config auto-created', JSON.stringify(api.list()));
+  const raw = JSON.parse(localStorage.getItem('solstice.configs.v2') || '{}');
+  record(Boolean(raw.Default && Array.isArray(raw.Default.modules)), 'Default stores module list',
+    'modules=' + (raw.Default ? raw.Default.modules.length : 0));
+  record(Boolean(raw.Default && raw.Default.hud && Object.keys(raw.Default.hud).length >= 0), 'Default stores hud block');
+  record(Boolean(raw.Default && raw.Default.binds), 'Default stores binds block');
+
+  /* 2. 设置写读往返 */
+  const iface = getMod('Interface');
+  const sat = iface.settings.find((s) => s.n === 'Saturation');
+  sat.v = 0.50;
+  api.save('Roundtrip');
+  sat.v = 1.00;
+  api.load('Roundtrip', { silent: true });
+  record(sat.v === 0.50, 'setting round-trips through save/load', 'Saturation=' + sat.v);
+
+  /* 3. 按键绑定往返 */
+  const wm = getMod('Watermark');
+  wm.key = 'KeyV';
+  api.save('Roundtrip');
+  wm.key = 0;
+  api.load('Roundtrip', { silent: true });
+  record(wm.key === 'KeyV', 'keybind round-trips through save/load', 'Watermark key=' + wm.key);
+  const storedBinds = JSON.parse(localStorage.getItem('solstice.binds') || '{}');
+  record(storedBinds.Watermark === 'KeyV', 'bind mirrored to solstice.binds', JSON.stringify(storedBinds));
+
+  /* 4. HUD 位置往返 */
+  const hud = hudElement('Watermark', 20, 20, 200, 45);
+  hud.x = 321; hud.y = 123;
+  HUD_LAYOUT.Watermark = { x: 321, y: 123 };
+  api.save('Roundtrip');
+  hud.x = 20; hud.y = 20;
+  HUD_LAYOUT.Watermark = { x: 20, y: 20 };
+  api.load('Roundtrip', { silent: true });
+  record(hud.x === 321 && hud.y === 123, 'hud position round-trips through save/load',
+    `Watermark=${hud.x},${hud.y}`);
+  const hudStored = JSON.parse(localStorage.getItem('solstice.hud.layout') || '{}');
+  record(hudStored.Watermark && hudStored.Watermark.x === 321, 'hud position mirrored to storage');
+
+  /* 5. Config 面板按钮触发动作 */
+  let saved = 0;
+  const realSave = api.save;
+  api.save = (...args) => { saved += 1; return realSave.apply(api, args); };
+  cfgMod.onRender(0.016);
+  const saveBtn = cfgMod.settings.find((s) => s.n === 'Save');
+  saveBtn.v = 1;
+  cfgMod.onRender(0.016);
+  record(saved === 1 && saveBtn.v === 0, 'Save button fires once and springs back', 'calls=' + saved);
+  api.save = realSave;
+
+  /* 6. ThirdPerson 配置外发 */
+  const sent = [];
+  const realQsa = document.querySelectorAll.bind(document);
+  document.querySelectorAll = (sel) => (sel === 'iframe'
+    ? [{ src: 'https://www.bilibilitoy.com/toy/golden-hour/index.html', contentWindow: { postMessage: (m) => sent.push(m) } }]
+    : realQsa(sel));
+  sent.length = 0;
+  const tp = getMod('ThirdPerson');
+  tp.settings.find((s) => s.n === 'Distance').v = 4.5;
+  setModuleOn(tp, true);
+  tp.onRender(0.016);
+  document.querySelectorAll = realQsa;
+  const tpMsg = sent.find((m) => m.channel === 'solstice-visual' && m.module === 'thirdperson');
+  record(Boolean(tpMsg && tpMsg.enabled === true && tpMsg.distance === 4.5), 'ThirdPerson posts enabled config',
+    JSON.stringify(tpMsg || null));
+
+  /* 7. AntiAim derp 配置外发 + DerpSpeed 动态可见 */
+  const sent2 = [];
+  document.querySelectorAll = (sel) => (sel === 'iframe'
+    ? [{ src: 'https://www.bilibilitoy.com/toy/golden-hour/index.html', contentWindow: { postMessage: (m) => sent2.push(m) } }]
+    : realQsa(sel));
+  const aa = getMod('AntiAim');
+  const derpSetting = aa.settings.find((s) => s.n === 'Derp Mode');
+  const speedSetting = aa.settings.find((s) => s.n === 'Derp Speed');
+  setModuleOn(aa, true);
+  derpSetting.v = 1;
+  speedSetting.v = 540;
+  aa.onRender(0.016);
+  document.querySelectorAll = realQsa;
+  const aaMsg = sent2.find((m) => m.channel === 'solstice-combat' && m.module === 'antiaim');
+  record(Boolean(aaMsg && aaMsg.derp === true && aaMsg.derpSpeed === 540), 'AntiAim posts derp settings',
+    JSON.stringify(aaMsg || null));
+  record(speedSetting.vis === true, 'DerpSpeed becomes visible with Derp Mode on');
+  derpSetting.v = 0;
+  aa.onRender(0.016);
+  record(speedSetting.vis === false, 'DerpSpeed hides again with Derp Mode off');
+
+  /* 8. 命令接口 */
+  const hasCmd = typeof window.sol === 'function';
+  record(hasCmd && window.Solstice && window.Solstice.configs === api, 'console command routed to engine');
+  window.sol('config list');
+
+  out.innerHTML = lines.join('\n');
+  const fails = lines.filter((l) => l.startsWith('FAIL')).length;
+  document.title = fails === 0 ? 'ALL-PASS' : `FAIL-${fails}`;
+})();
+</script>
+</body>
+</html>

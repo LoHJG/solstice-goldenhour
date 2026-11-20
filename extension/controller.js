@@ -180,8 +180,55 @@
     };
   }
 
-  function handleRuntimeMessage(message, sender, sendResponse) {
-    if (sender.id !== chrome.runtime.id) {
+  /* ── config file bridge: page (MAIN) → isolated → background ────── */
+
+  function handleConfigRequest(event) {
+    if (event.source && event.source !== window) {
+      return;
+    }
+
+    const data = event.data;
+
+    if (!data || data.channel !== 'solstice-cfg' || typeof data.action !== 'string') {
+      return;
+    }
+
+    const reply = (result) => {
+      try {
+        window.postMessage({
+          channel: 'solstice-cfg-res',
+          id: data.id,
+          result: result || null
+        }, '*');
+      } catch {
+
+      }
+    };
+
+    try {
+      chrome.runtime.sendMessage({
+        channel: 'solstice',
+        protocol: Protocol ? Protocol.PROTOCOL_VERSION : 1,
+        source: 'solstice-page',
+        type: 'solstice/cfg',
+        action: data.action,
+        name: data.name,
+        folder: data.folder,
+        content: data.content
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          reply({ ok: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+
+        reply(response);
+      });
+    } catch (error) {
+      reply({ ok: false, error: String(error) });
+    }
+  }
+
+  function handleRuntimeMessage(message, sender, sendResponse) {    if (sender.id !== chrome.runtime.id) {
       return false;
     }
 
@@ -216,6 +263,7 @@
 
   chrome.runtime.onMessage.addListener(handleRuntimeMessage);
   window.addEventListener('message', handleGameMessage);
+  window.addEventListener('message', handleConfigRequest);
   setupUiStateBroadcast();
   scheduleFontInjection();
   exposeAudioBase();

@@ -26,6 +26,8 @@
   let latestOnlineWorldAt = 0;
   let latestOnlineJumpHeld = false;
   let lastInputState = '';
+  let guardSwallow = true;
+  let guardMouse = true;
 
   const autoFireRequests = new Set();
   const recoilSuppressors = new Set();
@@ -88,6 +90,15 @@
     const data = event.data;
 
     if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    if (data.channel === 'solstice-input-guard') {
+      if (data.type === 'guard') {
+        guardSwallow = data.swallow !== false;
+        guardMouse = data.mouse !== false;
+      }
+
       return;
     }
 
@@ -631,6 +642,12 @@
       physicalD = true;
     }
 
+    if (guardSwallow && (event.ctrlKey || event.altKey || event.metaKey)) {
+      /* 游戏里按住 Ctrl / Alt / Win 时直接吞掉，Edge 收不到就不会触发快捷动作 */
+      consume(event);
+      return;
+    }
+
     if (
       active &&
       !event.repeat &&
@@ -642,7 +659,11 @@
           channel: KEY_CHANNEL,
           type: 'down',
           code: event.code || event.key,
-          key: event.key
+          key: event.key,
+          ctrl: Boolean(event.ctrlKey),
+          alt: Boolean(event.altKey),
+          shift: Boolean(event.shiftKey),
+          meta: Boolean(event.metaKey)
         }, PARENT_ORIGIN);
       } catch {
 
@@ -671,6 +692,41 @@
       physicalLmb = true;
     } else if (event.button === 2) {
       physicalRmb = true;
+    }
+
+    if (!guardMouse || !active) {
+      return;
+    }
+
+    const code = event.button === 1
+      ? 'Mouse3'
+      : event.button === 3
+        ? 'Mouse4'
+        : event.button === 4
+          ? 'Mouse5'
+          : '';
+
+    if (!code) {
+      return;
+    }
+
+    try {
+      window.parent.postMessage({
+        channel: KEY_CHANNEL,
+        type: 'down',
+        code,
+        key: code,
+        ctrl: Boolean(event.ctrlKey),
+        alt: Boolean(event.altKey),
+        shift: Boolean(event.shiftKey),
+        meta: Boolean(event.metaKey)
+      }, PARENT_ORIGIN);
+    } catch {
+
+    }
+
+    if (!uiOpen) {
+      consume(event);
     }
   }, true);
   window.addEventListener('mouseup', (event) => {

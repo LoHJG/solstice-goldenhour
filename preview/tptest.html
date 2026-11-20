@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ThirdPerson game-side test</title>
+<style>
+  html,body{margin:0;padding:0;background:#05060a;color:#d7e6ff;font:13px/1.5 monospace;overflow:hidden}
+  #out{position:fixed;left:12px;top:10px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<pre id="out"></pre>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const lines = [];
+  const record = (ok, label, extra) => {
+    lines.push(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
+    out.textContent = lines.join('\n');
+  };
+
+  /* ── 假游戏环境 ─────────────────────────────────────────────── */
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const camera = {
+    position: { x: 0, y: 1.6, z: 0 },
+    matrixWorld: { elements: identity.slice() },
+    updateMatrixWorld() {}
+  };
+  const during = [];
+  const renderer = {
+    render(scene, cam) {
+      during.push({ x: cam.position.x, y: cam.position.y, z: cam.position.z });
+    }
+  };
+
+  const bodyMesh = { visible: true };
+  window.GH = {
+    debug: {
+      gfx: { camera, renderer },
+      player: { pos: { x: 0, y: 0, z: 0 }, mesh: bodyMesh }
+    }
+  };
+
+  const handlers = new Map();
+  let resetHandler = null;
+  window.SolsticeGame = {
+    onConfig(channel, handler) { handlers.set(channel, handler); },
+    onReset(handler) { resetHandler = handler; },
+    wrapAngle(value) {
+      const twoPi = Math.PI * 2;
+      let out2 = value % twoPi;
+      if (out2 > Math.PI) out2 -= twoPi;
+      if (out2 < -Math.PI) out2 += twoPi;
+      return out2;
+    }
+  };
+
+  /* ── 用假 location 在“游戏页”身份下加载模块 ────────────────── */
+  const source = await (await fetch('../modules/Visual/ThirdPerson.js')).text();
+  const fakeLocation = { hostname: 'www.bilibilitoy.com', pathname: '/toy/golden-hour/index.html' };
+  new Function('location', source + '\n//# sourceURL=ThirdPerson.js')(fakeLocation);
+
+  await new Promise((r) => setTimeout(r, 120));
+  record(handlers.has('solstice-visual'), 'game side registered config handler');
+
+  const send = (payload) => handlers.get('solstice-visual')({ type: 'config', module: 'thirdperson', ...payload });
+
+  /* ── 关闭状态：渲染时不动摄像机 ─────────────────────────────── */
+  during.length = 0;
+  renderer.render({}, camera);
+  record(during[0].y === 1.6 && during[0].z === 0, 'disabled: camera untouched', JSON.stringify(during[0]));
+
+  /* ── 开启：渲染瞬间后移 4m、抬高 0.5m，渲染后还原 ───────────── */
+  send({ enabled: true, distance: 4, height: 0.5, body: true });
+  during.length = 0;
+  renderer.render({}, camera);
+  const seen = during[0];
+  const okForward = Math.abs(seen.x) < 1e-6 && Math.abs(seen.y - 2.1) < 1e-6 && Math.abs(seen.z - 4) < 1e-6;
+  record(okForward, 'enabled: camera pushed 4m back + 0.5m up at render time', JSON.stringify(seen));
+  record(camera.position.y === 1.6 && camera.position.z === 0, 'camera restored right after render',
+    JSON.stringify(camera.position));
+
+  /* ── 连续多帧不累积偏移 ─────────────────────────────────────── */
+  for (let i = 0; i < 5; i += 1) renderer.render({}, camera);
+  const last = during[during.length - 1];
+  record(Math.abs(last.z - 4) < 1e-6 && Math.abs(last.y - 2.1) < 1e-6, 'no offset drift across frames', JSON.stringify(last));
+
+  /* ── 参数热更新 ─────────────────────────────────────────────── */
+  send({ enabled: true, distance: 2, height: 0, body: true });
+  during.length = 0;
+  renderer.render({}, camera);
+  record(Math.abs(during[0].z - 2) < 1e-6 && Math.abs(during[0].y - 1.6) < 1e-6, 'live distance/height update',
+    JSON.stringify(during[0]));
+
+  /* ── 身体可见性 ─────────────────────────────────────────────── */
+  send({ enabled: false, distance: 2, height: 0, body: true });
+  bodyMesh.visible = false;
+  send({ enabled: true, distance: 2, height: 0, body: true });
+  record(bodyMesh.visible === true, 'show body forces the local model visible');
+  send({ enabled: false, distance: 2, height: 0, body: true });
+  record(bodyMesh.visible === false, 'disabling third person restores model visibility');
+
+  /* ── 关闭后渲染不再位移 ─────────────────────────────────────── */
+  during.length = 0;
+  renderer.render({}, camera);
+  record(during[0].y === 1.6 && during[0].z === 0, 'disabled again: camera untouched', JSON.stringify(during[0]));
+
+  out.textContent = lines.join('\n');
+  document.title = lines.some((l) => l.startsWith('FAIL')) ? 'FAIL' : 'ALL-PASS';
+})();
+</script>
+</body>
+</html>

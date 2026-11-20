@@ -23,7 +23,13 @@
       name: 'config',
       aliases: ['c'],
       description: 'Manage configurations',
-      usage: 'config <load/save/list/delete/default> [name]'
+      usage: 'config <load/save/list/delete/default/folder/export/import> [name]'
+    },
+    {
+      name: 'fatality',
+      aliases: ['splash'],
+      description: 'Plays the injection splash animation',
+      usage: 'fatality [word]'
     }
   ];
   const NAMED_KEYS = {
@@ -124,6 +130,7 @@
   let lastLoaded = '';
   let lastTrigger = '';
   let lastTriggerAt = 0;
+  let gamePlaying = false;
 
   function log(...args) {
     console.log('%c[Solstice]', 'color:#ff5fa2;font-weight:bold', ...args);
@@ -182,8 +189,113 @@
     return String(value || '');
   }
 
-  function keyFromEvent(event) {
-    return event.code || normalizeCode(event.keyCode);
+  const MODIFIER_ORDER = ['Ctrl', 'Alt', 'Shift', 'Meta'];
+  const MOUSE_CODES = { mouse3: 'Mouse3', mouse4: 'Mouse4', mouse5: 'Mouse5', m3: 'Mouse3', m4: 'Mouse4', m5: 'Mouse5' };
+  const RESERVED_MODS = { ctrl: true, alt: true, meta: true };
+
+  /* 把 "Ctrl+Shift+KeyA" 拆成 { mods, code } */
+  function splitBind(value) {
+    const raw = String(value || '').trim();
+
+    if (!raw) {
+      return null;
+    }
+
+    const parts = raw.split('+');
+    const code = parts.pop() || '';
+    const mods = { ctrl: false, alt: false, shift: false, meta: false };
+
+    for (const part of parts) {
+      const token = part.toLowerCase();
+
+      if (token === 'ctrl' || token === 'control') {
+        mods.ctrl = true;
+      } else if (token === 'alt' || token === 'option') {
+        mods.alt = true;
+      } else if (token === 'shift') {
+        mods.shift = true;
+      } else if (token === 'meta' || token === 'win' || token === 'super' || token === 'cmd') {
+        mods.meta = true;
+      } else {
+        return null;
+      }
+    }
+
+    return code ? { mods, code } : null;
+  }
+
+  function joinBind(mods, code) {
+    const parts = [];
+
+    for (const name of MODIFIER_ORDER) {
+      if (mods[name.toLowerCase()]) {
+        parts.push(name);
+      }
+    }
+
+    return parts.length ? `${parts.join('+')}+${code}` : code;
+  }
+
+  function hasReservedModifier(value) {
+    const parsed = splitBind(value);
+    return Boolean(parsed && (parsed.mods.ctrl || parsed.mods.alt || parsed.mods.meta));
+  }
+
+  function sameBaseCode(a, b) {
+    if (a === b) {
+      return true;
+    }
+
+    const groups = [
+      ['ShiftLeft', 'ShiftRight'],
+      ['ControlLeft', 'ControlRight'],
+      ['AltLeft', 'AltRight'],
+      ['MetaLeft', 'MetaRight']
+    ];
+
+    for (const group of groups) {
+      if (group.includes(a) && group.includes(b)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /* 事件 → 规范化绑定串（含修饰键） */
+  function bindFromEvent(event) {
+    const code = event.code || normalizeCode(event.keyCode);
+    const mods = {
+      ctrl: Boolean(event.ctrlKey),
+      alt: Boolean(event.altKey),
+      shift: Boolean(event.shiftKey),
+      meta: Boolean(event.metaKey)
+    };
+
+    return joinBind(mods, code);
+  }
+
+  function mouseBindFromEvent(event) {
+    if (event.button === 1) return joinBind({ ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey }, 'Mouse3');
+    if (event.button === 3) return joinBind({ ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey }, 'Mouse4');
+    if (event.button === 4) return joinBind({ ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey }, 'Mouse5');
+    return '';
+  }
+
+  function baseFromToken(raw) {
+    const lower = raw.toLowerCase();
+
+    if (NAMED_KEYS[lower]) return NAMED_KEYS[lower];
+    if (MOUSE_CODES[lower]) return MOUSE_CODES[lower];
+    if (/^f(?:[1-9]|1[0-9]|2[0-4])$/i.test(raw)) return raw.toUpperCase();
+    if (/^key[a-z]$/i.test(raw)) return `Key${raw.slice(-1).toUpperCase()}`;
+    if (/^digit[0-9]$/i.test(raw)) return `Digit${raw.slice(-1)}`;
+    if (/^numpad[0-9]$/i.test(raw)) return `Numpad${raw.slice(-1)}`;
+    if (/^num[0-9]$/i.test(raw)) return `Numpad${raw.slice(-1)}`;
+    if (/^[a-z]$/i.test(raw)) return `Key${raw.toUpperCase()}`;
+    if (/^[0-9]$/.test(raw)) return `Digit${raw}`;
+
+    return null;
   }
 
   function parseKey(input) {
@@ -203,48 +315,36 @@
       return 0;
     }
 
-    if (NAMED_KEYS[lower]) {
-      return NAMED_KEYS[lower];
+    const parts = raw.split('+');
+    const keyToken = parts.pop() || '';
+    const mods = { ctrl: false, alt: false, shift: false, meta: false };
+
+    for (const part of parts) {
+      const token = part.toLowerCase();
+
+      if (token === 'ctrl' || token === 'control') {
+        mods.ctrl = true;
+      } else if (token === 'alt' || token === 'option') {
+        mods.alt = true;
+      } else if (token === 'shift') {
+        mods.shift = true;
+      } else if (token === 'meta' || token === 'win' || token === 'super' || token === 'cmd') {
+        mods.meta = true;
+      } else {
+        return null;
+      }
     }
 
-    if (/^f(?:[1-9]|1[0-9]|2[0-4])$/i.test(raw)) {
-      return raw.toUpperCase();
+    const code = baseFromToken(keyToken);
+
+    if (!code) {
+      return null;
     }
 
-    if (/^key[a-z]$/i.test(raw)) {
-      return `Key${raw.slice(-1).toUpperCase()}`;
-    }
-
-    if (/^digit[0-9]$/i.test(raw)) {
-      return `Digit${raw.slice(-1)}`;
-    }
-
-    if (/^numpad[0-9]$/i.test(raw)) {
-      return `Numpad${raw.slice(-1)}`;
-    }
-
-    if (/^num[0-9]$/i.test(raw)) {
-      return `Numpad${raw.slice(-1)}`;
-    }
-
-    if (/^[a-z]$/i.test(raw)) {
-      return `Key${raw.toUpperCase()}`;
-    }
-
-    if (/^[0-9]$/.test(raw)) {
-      return `Digit${raw}`;
-    }
-
-    return null;
+    return joinBind(mods, code);
   }
 
-  function keyLabel(key) {
-    if (!key || key === 0) {
-      return 'None';
-    }
-
-    const code = normalizeCode(key);
-
+  function baseLabel(code) {
     if (KEY_LABELS[code]) {
       return KEY_LABELS[code];
     }
@@ -257,29 +357,56 @@
       return code.slice(5);
     }
 
+    if (code === 'Mouse3') return 'M3';
+    if (code === 'Mouse4') return 'M4';
+    if (code === 'Mouse5') return 'M5';
+
     return code;
   }
 
-  function keyMatches(key, code) {
-    if (!key || !code) {
+  function keyLabel(key) {
+    if (!key || key === 0) {
+      return 'None';
+    }
+
+    const parsed = splitBind(key);
+
+    if (!parsed) {
+      return baseLabel(normalizeCode(key));
+    }
+
+    const mods = [];
+
+    if (parsed.mods.ctrl) mods.push('Ctrl');
+    if (parsed.mods.alt) mods.push('Alt');
+    if (parsed.mods.shift) mods.push('Shift');
+    if (parsed.mods.meta) mods.push('Win');
+
+    const base = baseLabel(normalizeCode(parsed.code));
+    return mods.length ? `${mods.join('+')}+${base}` : base;
+  }
+
+  /* 修饰键必须完全一致：绑在 A 上就不会被 Ctrl+A 触发 */
+  function keyMatches(key, incoming) {
+    if (!key || !incoming) {
       return false;
     }
 
-    const stored = normalizeCode(key);
+    const stored = splitBind(key);
+    const pressed = splitBind(incoming);
 
-    if (stored === 'ShiftLeft' || stored === 'ShiftRight') {
-      return code === 'ShiftLeft' || code === 'ShiftRight';
+    if (!stored || !pressed) {
+      return sameBaseCode(normalizeCode(key), normalizeCode(incoming));
     }
 
-    if (stored === 'ControlLeft' || stored === 'ControlRight') {
-      return code === 'ControlLeft' || code === 'ControlRight';
+    if (stored.mods.ctrl !== pressed.mods.ctrl ||
+        stored.mods.alt !== pressed.mods.alt ||
+        stored.mods.shift !== pressed.mods.shift ||
+        stored.mods.meta !== pressed.mods.meta) {
+      return false;
     }
 
-    if (stored === 'AltLeft' || stored === 'AltRight') {
-      return code === 'AltLeft' || code === 'AltRight';
-    }
-
-    return stored === code;
+    return sameBaseCode(stored.code, pressed.code);
   }
 
   function saveBinds() {
@@ -312,33 +439,64 @@
     }
   }
 
-  function triggerBound(code) {
-    if (!code || code === 'Insert' || code === 'Escape') {
-      return;
+  function guardValue(name, fallback) {
+    const module = getMod('InputGuard');
+    const setting = module && module.settings.find((entry) => entry.n === name);
+    return setting ? Boolean(setting.v) : fallback;
+  }
+
+  /* 返回是否真的触发了模块（true 时调用方吞掉这个事件） */
+  function triggerBound(bind) {
+    if (!bind || bind === 'Insert' || bind === 'Escape') {
+      return false;
     }
 
     if (S.open || S.hudEditor || S.binding || S.bindBool) {
-      return;
+      return false;
+    }
+
+    const parsed = splitBind(bind);
+
+    if (!parsed) {
+      return false;
+    }
+
+    /* 带 Ctrl / Alt / Win 的组合一律不触发：那些是浏览器和系统的地盘 */
+    if (parsed.mods.ctrl || parsed.mods.alt || parsed.mods.meta) {
+      return false;
+    }
+
+    if (parsed.code.startsWith('Mouse') && !guardValue('Mouse Binds', true)) {
+      return false;
+    }
+
+    if (guardValue('In Game Only', false) && !gamePlaying) {
+      return false;
     }
 
     const now = performance.now();
 
-    if (code === lastTrigger && now - lastTriggerAt < 80) {
-      return;
+    if (bind === lastTrigger && now - lastTriggerAt < 80) {
+      return false;
     }
 
-    lastTrigger = code;
+    lastTrigger = bind;
     lastTriggerAt = now;
+
+    let fired = false;
 
     for (const mod of MODS) {
       if (mod.name === 'ClickGui') {
         continue;
       }
 
-      if (keyMatches(mod.key, code)) {
+      if (keyMatches(mod.key, bind)) {
         setModuleOn(mod, !mod.on);
+        fired = true;
       }
     }
+
+    return fired;
   }
 
   function commandHelp(name) {
@@ -403,162 +561,60 @@
       return;
     }
 
+    if (key && hasReservedModifier(key)) {
+      error('Ctrl / Alt / Win combos belong to the browser and the OS. Bind a plain key, a Shift combo, or Mouse4 / Mouse5.');
+      return;
+    }
+
     mod.key = key;
     saveBinds();
     log(`${mod.name} is now bound to ${keyLabel(key)}.`);
   }
 
-  function readConfigs() {
-    const configs = readJson(CONFIG_KEY, {});
-    return configs && typeof configs === 'object' ? configs : {};
-  }
+  /* ── config: 全部委托给 js/config.js 的引擎 ───────────────────── */
 
-  function writeConfigs(configs) {
-    return writeJson(CONFIG_KEY, configs);
-  }
-
-  function serializeModule(mod) {
-    return {
-      name: mod.name,
-      enabled: Boolean(mod.on),
-      key: mod.key || 0,
-      settings: mod.settings.map((setting) => ({
-        name: setting.n,
-        type: setting.t,
-        value: setting.t === 'c'
-          ? (Array.isArray(setting.v) ? setting.v.slice() : setting.v)
-          : setting.t === 'e'
-            ? (setting.vals?.[setting.v] ?? setting.v)
-            : setting.v
-      }))
-    };
-  }
-
-  function applySetting(setting, entry) {
-    if (!setting || !entry) {
-      return;
-    }
-
-    if (setting.t === 'e') {
-      let index = Number(entry.value);
-
-      if (typeof entry.value === 'string' && Array.isArray(setting.vals)) {
-        index = setting.vals.indexOf(entry.value);
-      }
-
-      if (Number.isInteger(index) && index >= 0 && index < setting.vals.length) {
-        setting.v = index;
-      }
-    } else if (setting.t === 'b') {
-      setting.v = entry.value ? 1 : 0;
-      setting.bs = setting.v;
-    } else if (setting.t === 'n') {
-      const value = Number(entry.value);
-
-      if (Number.isFinite(value)) {
-        setting.v = value;
-      }
-    } else if (setting.t === 'c') {
-      if (Array.isArray(entry.value)) {
-        setting.v = entry.value.slice();
-      }
-    }
-  }
-
-  function applyConfig(config, quiet = false) {
-    if (!config || !Array.isArray(config.modules)) {
-      error('Invalid configuration.');
-      return false;
-    }
-
-    for (const entry of config.modules) {
-      const mod = moduleByName(entry.name);
-
-      if (!mod) {
-        continue;
-      }
-
-      if (Array.isArray(entry.settings)) {
-        for (const stored of entry.settings) {
-          applySetting(mod.settings.find((setting) => setting.n === stored.name), stored);
-        }
-      }
-
-      if (entry.key !== undefined) {
-        mod.key = entry.key;
-      }
-
-      if (mod.name !== 'ClickGui') {
-        setModuleOn(mod, Boolean(entry.enabled));
-      }
-    }
-
-    saveBinds();
-
-    return true;
+  function engine() {
+    return window.SolsticeConfig || null;
   }
 
   function loadConfig(name, quiet = false) {
-    const configs = readConfigs();
-    const config = configs[name];
+    const api = engine();
 
-    if (!config) {
-      error(`The configuration '${name}' does not exist.`);
+    if (!api) {
       return false;
     }
 
-    if (!applyConfig(config, quiet)) {
-      return false;
-    }
-
-    lastLoaded = name;
-
-    if (!quiet) {
-      log(`Loaded configuration ${name}.`);
-    }
-
-    return true;
+    return api.load(name || api.active(), { silent: quiet });
   }
 
   function saveConfig(name, overwrite = false, quiet = false) {
-    const target = String(name || lastLoaded || '').trim();
+    const api = engine();
 
-    if (!target) {
-      error('No configuration name provided and no configuration loaded.');
+    if (!api) {
       return false;
     }
 
-    const configs = readConfigs();
+    const clean = String(name || '').trim() || api.active();
+    const exists = api.list().includes(clean);
 
-    if (configs[target] && lastLoaded !== target && !overwrite) {
-      warn(`Configuration '${target}' already exists. Use config save ${target} overwrite.`);
+    if (exists && !overwrite && !quiet) {
+      warn(`Configuration '${clean}' already exists. Use config save ${clean} overwrite.`);
       return false;
     }
 
-    configs[target] = {
-      version: CONFIG_VERSION,
-      name: target,
-      savedAt: Date.now(),
-      modules: MODS.map(serializeModule)
-    };
-
-    if (!writeConfigs(configs)) {
-      return false;
-    }
-
-    lastLoaded = target;
-
-    if (!quiet) {
-      log(`Saved configuration ${target}.`);
-    }
-
+    api.save(clean, { silent: quiet });
     return true;
   }
 
   function listConfigs() {
-    const configs = readConfigs();
-    const names = Object.keys(configs).sort();
-    const defaultName = localStorage.getItem(DEFAULT_KEY) || '';
+    const api = engine();
+
+    if (!api) {
+      return;
+    }
+
+    const names = api.list();
+    const active = api.active();
 
     if (names.length === 0) {
       log('No configurations.');
@@ -567,46 +623,45 @@
 
     console.table(names.map((name) => ({
       Name: name,
-      Default: name === defaultName ? 'yes' : '',
-      Saved: new Date(configs[name].savedAt || 0).toLocaleString()
+      Active: name === active ? 'yes' : ''
     })));
+
+    log('Use config load <name> to apply one.');
   }
 
   function deleteConfig(name) {
-    const configs = readConfigs();
-
-    if (!configs[name]) {
-      error(`The configuration '${name}' does not exist.`);
-      return;
-    }
-
-    delete configs[name];
-    writeConfigs(configs);
-
-    if (localStorage.getItem(DEFAULT_KEY) === name) {
-      localStorage.removeItem(DEFAULT_KEY);
-    }
-
-    log(`Deleted configuration ${name}.`);
+    engine()?.remove(name);
   }
 
   function setDefaultConfig(name) {
-    if (!name) {
-      localStorage.removeItem(DEFAULT_KEY);
-      log('Cleared the default configuration.');
+    const api = engine();
+
+    if (!api) {
       return;
     }
 
-    if (!readConfigs()[name]) {
+    if (!name) {
+      log('Usage: config default <name>');
+      return;
+    }
+
+    if (!api.list().includes(name)) {
       error(`The configuration '${name}' does not exist.`);
       return;
     }
 
-    localStorage.setItem(DEFAULT_KEY, name);
-    log(`Set the default configuration to ${name}.`);
+    api.setActive(name);
+    log(`The default configuration is now ${name}.`);
   }
 
   function commandConfig(action, name, extra) {
+    const api = engine();
+
+    if (!api) {
+      error('The configuration engine is not loaded.');
+      return;
+    }
+
     if (!action) {
       error(COMMANDS.find((command) => command.name === 'config').usage);
       return;
@@ -623,7 +678,7 @@
       loadConfig(name);
     } else if (verb === 'save' || verb === 's') {
       saveConfig(name, extra === 'overwrite');
-    } else if (verb === 'list') {
+    } else if (verb === 'list' || verb === 'ls') {
       listConfigs();
     } else if (verb === 'delete' || verb === 'del') {
       if (!name) {
@@ -634,9 +689,27 @@
       deleteConfig(name);
     } else if (verb === 'default' || verb === 'd') {
       setDefaultConfig(name);
+    } else if (verb === 'folder' || verb === 'open') {
+      api.openFolder();
+    } else if (verb === 'export') {
+      api.exportFile(name || api.active());
+    } else if (verb === 'import') {
+      api.importFile();
     } else {
       error(COMMANDS.find((command) => command.name === 'config').usage);
     }
+  }
+
+  function commandFatality(word) {
+    const play = window.solsticeSplash;
+
+    if (typeof play !== 'function') {
+      error('The splash module is not loaded.');
+      return;
+    }
+
+    play(word);
+    log(word ? `Playing the splash with '${word}'.` : 'Playing the splash.');
   }
 
   function parseLine(line) {
@@ -677,6 +750,8 @@
       commandBind(parts[1], parts[2]);
     } else if (command.name === 'config') {
       commandConfig(parts[1], parts[2], parts[3]);
+    } else if (command.name === 'fatality') {
+      commandFatality(parts[1]);
     }
   }
 
@@ -707,7 +782,28 @@
       return;
     }
 
-    triggerBound(keyFromEvent(event));
+    if (triggerBound(bindFromEvent(event))) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
+
+  /* 鼠标侧键 / 中键也能当绑定键 */
+  window.addEventListener('mousedown', (event) => {
+    if (event.repeat || S.open || S.hudEditor || S.binding || S.bindBool) {
+      return;
+    }
+
+    const bind = mouseBindFromEvent(event);
+
+    if (!bind) {
+      return;
+    }
+
+    if (triggerBound(bind)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
   }, true);
 
   window.addEventListener('message', (event) => {
@@ -717,26 +813,57 @@
 
     const data = event.data;
 
-    if (data?.channel === 'solstice-key' && data.type === 'down') {
-      triggerBound(normalizeCode(data.code || data.key));
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    if (data.channel === 'solstice-input' && data.type === 'state') {
+      gamePlaying = Boolean(data.playing);
+      return;
+    }
+
+    if (data.channel === 'solstice-key' && data.type === 'down') {
+      const mods = {
+        ctrl: Boolean(data.ctrl),
+        alt: Boolean(data.alt),
+        shift: Boolean(data.shift),
+        meta: Boolean(data.meta)
+      };
+      const bind = joinBind(mods, normalizeCode(data.code || data.key));
+
+      if (triggerBound(bind)) {
+        /* 游戏 iframe 已经吞掉了事件，这里不需要额外操作 */
+        return;
+      }
     }
   });
 
   loadBinds();
 
-  const defaultConfig = localStorage.getItem(DEFAULT_KEY);
-
-  if (defaultConfig && readConfigs()[defaultConfig]) {
-    loadConfig(defaultConfig, true);
-  }
-
+  /* 配置在 js/config.js 里已经于启动第一步加载完毕，这里只补一次绑定同步 */
   window.Solstice = {
     help: commandHelp,
     bind: commandBind,
     config: commandConfig,
+    fatality: commandFatality,
     execute,
     saveModuleBind,
     commands: COMMANDS.map((command) => command.name)
+  };
+
+  if (window.SolsticeConfig) {
+    window.Solstice.configs = window.SolsticeConfig;
+  }
+
+  /* 给 main.js 的绑定捕获用 */
+  window.SolsticeKeys = {
+    parseKey,
+    keyLabel,
+    bindFromEvent,
+    mouseBindFromEvent,
+    keyMatches,
+    splitBind,
+    hasReservedModifier
   };
   window.sol = execute;
 
