@@ -23,9 +23,9 @@
     return null;
   }
 
-  function themeColor() {
+  function themeColor(index = 0) {
     try {
-      const color = window.SolsticeThemeColor?.(0);
+      const color = window.SolsticeThemeColor?.(index);
 
       if (Array.isArray(color) && color.length >= 3) {
         return color.slice(0, 3).map((value) => Math.max(0, Math.min(255, Number(value) || 0)));
@@ -34,7 +34,7 @@
 
     }
 
-    return [255, 154, 86];
+    return index === 1 ? [64, 39, 22] : [255, 154, 86];
   }
 
   function syncConfig() {
@@ -45,11 +45,13 @@
     }
 
     const now = performance.now();
+    const color = themeColor(0);
     const config = {
       channel: CHANNEL,
       type: 'config',
       enabled: Boolean(module.on),
-      color: themeColor()
+      color,
+      color2: color.map((value) => Math.round(value * 0.25))
     };
     const key = JSON.stringify(config);
 
@@ -106,6 +108,7 @@
     function installGame(bridge) {
       let enabled = false;
       let color = [255, 154, 86];
+      let color2 = [64, 39, 22];
       let scene = null;
       let geometry = null;
       let up = null;
@@ -130,7 +133,7 @@
       }
 
       up = new three.Vector3(0, 1, 0);
-      geometry = new three.CylinderGeometry(1, 1, 1, 6, 1, true);
+      geometry = new three.CylinderGeometry(1, 1, 1, 24, 1, false);
       geometry.translate(0, 0.5, 0);
     }
 
@@ -163,11 +166,16 @@
 
       const direction = new three.Vector3(dx / length, dy / length, dz / length);
       const quaternion = new three.Quaternion().setFromUnitVectors(up, direction);
-      const material = new three.MeshBasicMaterial({
-        color: new three.Color(color[0] / 255, color[1] / 255, color[2] / 255),
+      const material = new three.ShaderMaterial({
+        uniforms: {
+          uColorA: { value: new three.Color(color[0] / 255, color[1] / 255, color[2] / 255) },
+          uColorB: { value: new three.Color(color2[0] / 255, color2[1] / 255, color2[2] / 255) },
+          uOpacity: { value: 0.95 }
+        },
+        vertexShader: 'varying float vT; void main() { vT = position.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: 'uniform vec3 uColorA; uniform vec3 uColorB; uniform float uOpacity; varying float vT; void main() { vec3 c = mix(uColorA, uColorB, clamp(vT, 0.0, 1.0)); gl_FragColor = vec4(c, uOpacity); }',
         transparent: true,
-        opacity: 0.95,
-        blending: three.AdditiveBlending,
+        blending: three.NormalBlending,
         depthWrite: false,
         toneMapped: false,
         side: three.DoubleSide
@@ -312,7 +320,7 @@
           : Math.max(0, 1 - (tracer.age - tracer.hold) / tracer.fade);
 
         for (const mesh of tracer.meshes) {
-          mesh.material.opacity = mesh.userData.maxOpacity * fade;
+          mesh.material.uniforms.uOpacity.value = mesh.userData.maxOpacity * fade;
         }
       }
     }
@@ -326,6 +334,10 @@
 
       if (Array.isArray(data.color) && data.color.length >= 3) {
         color = data.color.slice(0, 3).map((value) => Math.max(0, Math.min(255, Number(value) || 0)));
+      }
+
+      if (Array.isArray(data.color2) && data.color2.length >= 3) {
+        color2 = data.color2.slice(0, 3).map((value) => Math.max(0, Math.min(255, Number(value) || 0)));
       }
 
       if (!enabled) {

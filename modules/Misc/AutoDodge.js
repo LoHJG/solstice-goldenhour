@@ -76,8 +76,12 @@
       { t: 'b', n: 'Crouch', d: 'Use crouches while dodging.', v: 1 }
     ],
     onRender: syncConfig,
-    onEnable() {}
+    onEnable() {
+      syncConfig();
+    }
   });
+
+  setInterval(syncConfig, 250);
 
   function bootGame() {
     let attempts = 0;
@@ -226,18 +230,34 @@
         }
 
         const body = enemyBody(actor);
+        const enemyHeight = Number(body.e?.h) > 0.2 ? Number(body.e.h) : 1.8;
         const yaw = Number(actor.aimYaw ?? body.yaw ?? actor.yaw);
-        const pitch = Number(actor.aimPitch ?? body.pitch ?? actor.pitch);
+        let pitch = Number(actor.aimPitch ?? body.pitch ?? actor.pitch);
 
-        if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) {
+        if (!Number.isFinite(yaw)) {
           continue;
         }
 
         const eye = actor.eye || body.eye || {
           x: actor.pos.x,
-          y: actor.pos.y + height * 0.9,
+          y: actor.pos.y + enemyHeight * 0.9,
           z: actor.pos.z
         };
+
+        if (!Number.isFinite(pitch)) {
+          const ex = player.pos.x - eye.x;
+          const ez = player.pos.z - eye.z;
+          const horizontal = Math.hypot(ex, ez);
+          const cone = Math.min(0.4, Math.max(0.08, Math.atan2(0.55, horizontal || 1)));
+          const desiredYaw = Math.atan2(-ex, -ez);
+
+          if (Math.abs(bridge.wrapAngle(yaw - desiredYaw)) > cone) {
+            continue;
+          }
+
+          pitch = Math.atan2(player.pos.y + height * 0.55 - eye.y, horizontal || 1);
+        }
+
         const cos = Math.cos(pitch);
         const dx = -Math.sin(yaw) * cos;
         const dy = Math.sin(pitch);
@@ -398,12 +418,10 @@
         buttons |= 4;
       }
 
-      context.localInput = {
-        ...input,
-        forward: dodgeState.forward,
-        right: dodgeState.right,
-        buttons
-      };
+      input.forward = dodgeState.forward;
+      input.right = dodgeState.right;
+      input.buttons = buttons;
+      context.localInput = input;
     }, 100);
 
     bridge.onReset(release);
