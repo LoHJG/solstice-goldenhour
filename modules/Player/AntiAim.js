@@ -60,12 +60,12 @@
 
   register({
     name: 'AntiAim',
-    desc: 'Jiggles or points your server-side view away from enemies.',
+    desc: 'Jiggles around the back angle or points away from enemies.',
     cat: "Player",
     nm: { l: 'antiaim', ls: 'anti aim', n: 'AntiAim', ns: 'Anti Aim' },
     disp: 'Mode',
     settings: [
-      { t: 'e', n: 'Mode', d: 'The anti-aim style.', v: 0, vals: ['Jiggle', 'Yaw'] }
+      { t: 'e', n: 'Mode', d: 'The anti-aim style.', v: 0, vals: ['Jiggle', 'Back'] }
     ],
     onRender: syncConfig,
     onEnable() {
@@ -133,7 +133,8 @@
       };
     }
 
-    function jiggleAngles(player) {
+    function jiggleAngles(player, actors) {
+      const base = antiAngles(player, actors);
       const now = performance.now();
 
       if (now >= nextJiggle) {
@@ -142,8 +143,8 @@
       }
 
       return {
-        yaw: bridge.wrapAngle(player.yaw + jiggleSide * 0.6),
-        pitch: bridge.clamp(player.pitch - 0.2, -1.5, 1.5)
+        yaw: bridge.wrapAngle(base.yaw + jiggleSide * 0.6),
+        pitch: base.pitch
       };
     }
 
@@ -160,7 +161,7 @@
       }
 
       if (!angles) {
-        angles = mode === 'Jiggle' ? jiggleAngles(player) : antiAngles(player, actors);
+        angles = mode === 'Jiggle' ? jiggleAngles(player, actors) : antiAngles(player, actors);
       }
 
       lastAngles = angles;
@@ -170,7 +171,7 @@
     bridge.onConfig('solstice-combat', (data) => {
       if (data.type === 'config' && data.module === 'antiaim') {
         enabled = Boolean(data.enabled);
-        mode = data.mode === 'Yaw' ? 'Yaw' : 'Jiggle';
+        mode = data.mode === 'Back' ? 'Back' : 'Jiggle';
 
         if (!enabled) {
           lastAngles = null;

@@ -570,7 +570,8 @@
 
     bridge.provide('thirdperson', {
       getEye: () => (enabled ? eye : null),
-      getEspCamera: () => (enabled ? espCamera : null)
+      getEspCamera: () => (enabled ? espCamera : null),
+      isEnabled: () => enabled
     });
 
     setInterval(installRenderHook, 500);

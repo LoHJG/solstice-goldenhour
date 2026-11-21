@@ -108,6 +108,36 @@
       );
     }
 
+    function weaponState() {
+      const debug = bridge.getGH()?.debug;
+      const arsenal = debug?.arsenal;
+      const player = debug?.player;
+
+      if (!arsenal || !player || !player.alive) {
+        return null;
+      }
+
+      return { arsenal, player };
+    }
+
+    function canUseWeapon(state) {
+      const { arsenal, player } = state;
+
+      if (arsenal.state !== 'ready' && arsenal.state !== 'pump') {
+        return false;
+      }
+
+      if ((arsenal.slot?.ammo || 0) <= 0) {
+        return false;
+      }
+
+      if ((arsenal.pumpWait || 0) > 0 || player.mode === 'mantle') {
+        return false;
+      }
+
+      return true;
+    }
+
     function stopSprint() {
       const target = input();
 
@@ -159,7 +189,7 @@
       owned = true;
     }
 
-    function release() {
+    function releaseCrouch() {
       const target = input();
 
       if (owned) {
@@ -167,6 +197,10 @@
       }
 
       owned = false;
+    }
+
+    function release() {
+      releaseCrouch();
       restoreSprint();
     }
 
@@ -176,13 +210,28 @@
         return;
       }
 
-      if (firing()) {
-        stopSprint();
-        press();
+      if (!firing()) {
+        release();
         return;
       }
 
-      release();
+      const state = weaponState();
+
+      if (!state || !canUseWeapon(state)) {
+        release();
+        return;
+      }
+
+      const { arsenal } = state;
+
+      if ((arsenal.sprintLock || 0) > 0 || (arsenal.cool || 0) > 0) {
+        stopSprint();
+        releaseCrouch();
+        return;
+      }
+
+      stopSprint();
+      press();
     }
 
     function releaseAfterShot() {
