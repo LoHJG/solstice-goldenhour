@@ -133,7 +133,7 @@ function drawFatalityClickGui(a, dt) {
   }
 
   /* 窗口尺寸与缩放：744x540 的设计尺寸按屏幕缩放，最大 1:1 */
-  let s = Math.min(1, (W - 60) / FT.W, (H - 60) / FT.H);
+  let s = Math.min((W * 0.90) / FT.W, (H * 0.82) / FT.H, 1.5);
   s = Math.max(0.35, s);
 
   const winW = FT.W * s;
@@ -148,6 +148,14 @@ function drawFatalityClickGui(a, dt) {
 
   const gmx = (S.mx - ox) / s;
   const gmy = (S.my - oy) / s;
+  const hits = (x, y, w, h) => gmx >= x && gmx <= x + w && gmy >= y && gmy <= y + h;
+
+  /* 给预览/测试用的几何信息 */
+  FT_STATE.dbg = { ox, oy, s, sliders: [] };
+
+  if (!S.down[0]) {
+    FT_STATE.drag = null;
+  }
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -192,7 +200,7 @@ function drawFatalityClickGui(a, dt) {
   for (let i = 0; i < CATS.length; i += 1) {
     const tabY = sideY + 8 + i * 26;
     const tabActive = FT_STATE.cat === i;
-    const hover = inside(4, tabY, FT.SIDEBAR - 8, 24);
+    const hover = hits(4, tabY, FT.SIDEBAR - 8, 24);
     const act = ftAnim(`tab${i}`, tabActive ? 1 : 0, dt, 18);
 
     if (tabActive) {
@@ -328,7 +336,7 @@ function drawFtCard(card, y, dt, gmx, gmy) {
   let handled = false;
   if (vis) {
     const eyeHover = gmx >= eyeX - 3 && gmx <= eyeX + 11 && gmy >= y + 1 && gmy <= y + 13;
-    ftEye(eyeX, y + 1.5, Boolean(vis.v), eyeHover ? FTC.iconHover : FTC.iconFaint, 1);
+    ftEye(eyeX, y + 1, Boolean(vis.v), eyeHover ? FTC.iconHover : (vis.v ? FTC.icon : FTC.iconFaint), 1);
 
     if (S.clicked[0] && eyeHover) {
       vis.v = vis.v ? 0 : 1;
@@ -431,10 +439,14 @@ function drawFtRow(mod, setting, x, y, w, dt, gmx, gmy) {
 
     text(valueX, trackY + 2.5, value, FTC.fieldText, 1, false, false, 9);
 
-    if (hover && (S.down[0] || S.clicked[0])) {
-      const nx = clamp((gmx - trackX) / trackW, 0, 1);
-      setting.v = Math.round((setting.min + nx * span) / setting.step) * setting.step;
-      setting.v = clamp(setting.v, setting.min, setting.max);
+    if (FT_STATE.dbg) {
+      FT_STATE.dbg.sliders.push({ key: `${mod.name}.${setting.n}`, x: trackX, y: trackY, w: trackW, setting });
+    }
+
+    const onTrack = gmx >= trackX - 2 && gmx <= trackX + trackW + 2 &&
+      gmy >= trackY - 3 && gmy <= trackY + FT.SLIDER_H + 3;
+
+    if (S.clicked[0] && onTrack) {
       FT_STATE.drag = setting;
     }
 
