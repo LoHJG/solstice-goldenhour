@@ -64,6 +64,7 @@
         "modules/Visual/Keystrokes.js",
         "modules/Visual/Notifications.js",
         "modules/Misc/ToggleSounds.js",
+        "modules/Misc/UIDSpoof.js",
         "modules/Misc/UnLock.js",
         "modules/Misc/AutoDodge.js",
         "modules/Misc/KillSound.js",
@@ -83,6 +84,7 @@
       ],
       "js": [
         "extension/game-key-bridge.js",
+        "modules/Misc/UIDSpoof.js",
         "modules/Combat/AimBot.js",
         "modules/Combat/TriggerBot.js",
         "modules/Combat/NoRecoil.js",
