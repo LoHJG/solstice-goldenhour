@@ -346,7 +346,8 @@
       }
 
       const camera = bridge.getGH()?.debug?.gfx?.camera;
-      const origin = eye || camera?.position;
+      const thirdPerson = bridge.getFeature('thirdperson');
+      const origin = thirdPerson?.getEye?.() || eye || camera?.position;
 
       if (!origin) {
         return null;

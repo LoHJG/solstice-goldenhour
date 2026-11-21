@@ -254,7 +254,8 @@
       }
 
       const debug = gh.debug;
-      const camera = debug?.gfx?.camera;
+      const thirdPerson = bridge.getFeature('thirdperson');
+      const camera = thirdPerson?.getEspCamera?.() || debug?.gfx?.camera;
       const player = debug?.player;
       const actors = debug?.match?.actors;
 

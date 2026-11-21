@@ -89,6 +89,7 @@
 
   function installGame(bridge) {
     let enabled = false;
+    let lastAngles = null;
 
     function anglesToPoint(eye, point) {
       const dx = point.x - eye.x;
@@ -123,22 +124,36 @@
 
     function spoofFor(player, camera, actors) {
       const aura = bridge.getFeature('aura');
+      let angles;
 
       if (aura?.getTarget?.() && aura.canFireNow?.()) {
         const point = aura.getAimPoint?.(camera.position);
 
         if (point) {
-          return anglesToPoint(camera.position, point);
+          angles = anglesToPoint(camera.position, point);
         }
       }
 
-      return antiAngles(player, actors);
+      if (!angles) {
+        angles = antiAngles(player, actors);
+      }
+
+      lastAngles = angles;
+      return angles;
     }
 
     bridge.onConfig('solstice-combat', (data) => {
       if (data.type === 'config' && data.module === 'antiaim') {
         enabled = Boolean(data.enabled);
+
+        if (!enabled) {
+          lastAngles = null;
+        }
       }
+    });
+
+    bridge.provide('antiaim', {
+      getAngles: () => lastAngles
     });
 
     bridge.onWorldMove((context) => {

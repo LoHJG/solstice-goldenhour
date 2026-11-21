@@ -54,6 +54,7 @@
         "modules/Player/AntiAim.js",
         "modules/Player/CustomName.js",
         "modules/Visual/Watermark.js",
+        "modules/Visual/ThirdPerson.js",
         "modules/Visual/ClickGui.js",
         "modules/Visual/Interface.js",
         "modules/Visual/HudEditor.js",
@@ -86,7 +87,8 @@
         "modules/Player/AntiAim.js",
         "modules/Player/CustomName.js",
         "modules/Visual/ESP.js",
-        "modules/Misc/UnLock.js"
+        "modules/Misc/UnLock.js",
+        "modules/Visual/ThirdPerson.js"
       ],
       "run_at": "document_start",
       "all_frames": true,
@@ -97,7 +99,8 @@
     {
       "resources": [
         "assets/fonts/*",
-        "assets/audio/*"
+        "assets/audio/*",
+        "assets/img/seven_days.png"
       ],
       "matches": [
         "https://www.bilibili.com/*"
