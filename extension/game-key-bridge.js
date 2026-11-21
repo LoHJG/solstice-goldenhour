@@ -37,6 +37,39 @@
   const resetHooks = [];
   const configHandlers = new Map();
   const features = new Map();
+  let latestRawSnapshot = null;
+  let latestRawSnapshotAt = 0;
+
+  function installSnapshotCapture() {
+    try {
+      const prototype = EventTarget.prototype;
+      const originalDispatch = prototype.dispatchEvent;
+
+      if (originalDispatch.__solsticeSnapshotCapture) {
+        return;
+      }
+
+      const wrappedDispatch = function wrappedSolsticeDispatch(event) {
+        if (event?.type === 'snapshot' && Array.isArray(event.detail?.players)) {
+          latestRawSnapshot = event.detail;
+          latestRawSnapshotAt = performance.now();
+        }
+
+        return originalDispatch.call(this, event);
+      };
+
+      Object.defineProperty(wrappedDispatch, '__solsticeSnapshotCapture', { value: true });
+      prototype.dispatchEvent = wrappedDispatch;
+    } catch {
+
+    }
+  }
+
+  function getRawSnapshot() {
+    return latestRawSnapshot && performance.now() - latestRawSnapshotAt < 1000
+      ? latestRawSnapshot
+      : null;
+  }
 
   function send(type, payload) {
     const message = { channel: CHANNEL, type };
@@ -375,6 +408,10 @@
     syncSyntheticFire();
   }
 
+  function hasAutoFireRequest(source) {
+    return autoFireRequests.has(source);
+  }
+
   function clearAutoFireRequests() {
     autoFireRequests.clear();
     setSyntheticFire(false);
@@ -481,16 +518,33 @@
       const originalFire = combat.fire;
       const wrappedFire = function wrappedSolsticeCombatFire(...args) {
         let direction = args[2];
+        let cancelled = false;
 
         for (const entry of fireHooks) {
           try {
             const replacement = entry.hook(args[0], args[1], direction, ...args.slice(3));
+
+            if (replacement === false) {
+              cancelled = true;
+              break;
+            }
+
             if (replacement) {
               direction = replacement;
             }
           } catch {
 
           }
+        }
+
+        if (cancelled) {
+          return {
+            point: args[1]?.clone ? args[1].clone() : { x: 0, y: 0, z: 0 },
+            actor: null,
+            head: false,
+            dist: 0,
+            any: false
+          };
         }
 
         args[2] = direction;
@@ -610,6 +664,8 @@
     clamp,
     wrapAngle,
     requestAutoFire,
+    hasAutoFireRequest,
+    getRawSnapshot,
     clearAutoFireRequests,
     setRecoilSuppressed,
     isRecoilSuppressed,
@@ -617,6 +673,7 @@
     getFeature
   };
 
+  installSnapshotCapture();
   window.addEventListener('message', onMessage);
   window.addEventListener('keydown', onKeyDown, true);
   window.addEventListener('keydown', (event) => {

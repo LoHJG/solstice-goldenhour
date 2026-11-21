@@ -146,6 +146,8 @@
     let singleTarget = null;
     let syntheticAds = false;
     const lastAttacks = new WeakMap();
+    const remoteTracks = new WeakMap();
+    const LEAD_SECONDS = 0.1;
 
     function releaseAds() {
       if (!syntheticAds) {
@@ -200,10 +202,123 @@
       }
     }
 
+    function rawPlayer(actor) {
+      const snapshot = bridge.getRawSnapshot?.();
+
+      if (!snapshot || !actor || actor.id === undefined) {
+        return null;
+      }
+
+      return snapshot.players.find((player) => player.id === actor.id) || null;
+    }
+
+    function rawHeight(player) {
+      return player.sliding ? 0.95 : player.crouch ? 1.2 : 1.8;
+    }
+
+    function rawHeadPoint(actor, out) {
+      const player = rawPlayer(actor);
+
+      if (!player || player.alive === false) {
+        return false;
+      }
+
+      const eyeHeight = player.sliding ? 0.72 : player.crouch ? 1 : 1.62;
+      out.set(player.x, player.y + eyeHeight + 0.04, player.z);
+      return true;
+    }
+
+    function isRemoteActor(actor) {
+      return Boolean(
+        actor &&
+        document.body.classList.contains('online-session') &&
+        actor.isPlayer !== true &&
+        !actor.char &&
+        !Array.isArray(actor.hit)
+      );
+    }
+
+    function remoteLeadOffset(actor) {
+      if (!isRemoteActor(actor) || !actor.pos) {
+        return null;
+      }
+
+      const now = performance.now();
+      const previous = remoteTracks.get(actor);
+
+      if (!previous) {
+        remoteTracks.set(actor, {
+          x: actor.pos.x,
+          y: actor.pos.y,
+          z: actor.pos.z,
+          time: now,
+          vx: 0,
+          vy: 0,
+          vz: 0
+        });
+        return null;
+      }
+
+      const dt = (now - previous.time) / 1000;
+      const mx = actor.pos.x - previous.x;
+      const my = actor.pos.y - previous.y;
+      const mz = actor.pos.z - previous.z;
+
+      if (dt >= 0.004 && dt <= 0.25) {
+        if (Math.hypot(mx, my, mz) > 3.5) {
+          previous.vx = 0;
+          previous.vy = 0;
+          previous.vz = 0;
+        } else {
+          const vx = Math.max(-18, Math.min(18, mx / dt));
+          const vy = Math.max(-18, Math.min(18, my / dt));
+          const vz = Math.max(-18, Math.min(18, mz / dt));
+          previous.vx = previous.vx * 0.6 + vx * 0.4;
+          previous.vy = previous.vy * 0.6 + vy * 0.4;
+          previous.vz = previous.vz * 0.6 + vz * 0.4;
+        }
+
+        previous.x = actor.pos.x;
+        previous.y = actor.pos.y;
+        previous.z = actor.pos.z;
+        previous.time = now;
+      }
+
+      return {
+        x: previous.vx * LEAD_SECONDS,
+        y: previous.vy * LEAD_SECONDS,
+        z: previous.vz * LEAD_SECONDS
+      };
+    }
+
+    function targetValid(context) {
+      const raw = rawPlayer(target);
+
+      return Boolean(
+        target &&
+        context &&
+        target.alive !== false &&
+        (!raw || raw.alive !== false) &&
+        context.actors.includes(target) &&
+        bridge.isEnemy(target, context.player)
+      );
+    }
+
     function aimPoint(actor, eye, debug) {
       const range = Number(config.range) || 0;
+      const raw = rawPlayer(actor);
+      const lead = raw ? null : remoteLeadOffset(actor);
       const point = debug.player.pos.clone();
-      bridge.headPoint(actor, point);
+
+      if (!rawHeadPoint(actor, point)) {
+        bridge.headPoint(actor, point);
+
+        if (lead) {
+          point.x += lead.x;
+          point.y += lead.y;
+          point.z += lead.z;
+        }
+      }
 
       let dx = point.x - eye.x;
       let dy = point.y - eye.y;
@@ -217,8 +332,19 @@
         }
       }
 
-      const height = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
-      point.set(actor.pos.x, actor.pos.y + height * 0.55, actor.pos.z);
+      if (raw) {
+        point.set(raw.x, raw.y + rawHeight(raw) * 0.55, raw.z);
+      } else {
+        const height = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
+        point.set(actor.pos.x, actor.pos.y + height * 0.55, actor.pos.z);
+
+        if (lead) {
+          point.x += lead.x;
+          point.y += lead.y;
+          point.z += lead.z;
+        }
+      }
+
       dx = point.x - eye.x;
       dy = point.y - eye.y;
       dz = point.z - eye.z;
@@ -246,6 +372,13 @@
         }
 
         bridge.headPoint(actor, head);
+        const raw = rawPlayer(actor);
+
+        if (raw && raw.alive === false) {
+          continue;
+        }
+
+        rawHeadPoint(actor, head);
 
         const distance = Math.hypot(head.x - eye.x, head.y - eye.y, head.z - eye.z);
 
@@ -341,8 +474,19 @@
     }
 
     function resolveShot(eye, dir) {
+      const auto = Boolean(bridge.hasAutoFireRequest?.('aura'));
+
       if (!config.enabled || !target || !bridge.active || bridge.uiOpen) {
-        return null;
+        bridge.requestAutoFire('aura', false);
+        return auto ? false : null;
+      }
+
+      const context = bridge.getContext();
+
+      if (!targetValid(context)) {
+        target = null;
+        bridge.requestAutoFire('aura', false);
+        return auto ? false : null;
       }
 
       const camera = bridge.getGH()?.debug?.gfx?.camera;
@@ -350,13 +494,15 @@
       const origin = thirdPerson?.getEye?.() || eye || camera?.position;
 
       if (!origin) {
-        return null;
+        bridge.requestAutoFire('aura', false);
+        return auto ? false : null;
       }
 
       const point = aimPoint(target, origin, bridge.getGH().debug);
 
       if (!point) {
-        return null;
+        bridge.requestAutoFire('aura', false);
+        return auto ? false : null;
       }
 
       const dx = point.x - origin.x;
@@ -365,7 +511,8 @@
       const length = Math.hypot(dx, dy, dz);
 
       if (length < 1e-4) {
-        return null;
+        bridge.requestAutoFire('aura', false);
+        return auto ? false : null;
       }
 
       const out = dir && typeof dir.clone === 'function'
@@ -497,13 +644,24 @@
     }, 20);
 
     bridge.onCombatFire((actor, eye, dir) => {
-      if (!config.enabled || !target || !bridge.active || bridge.uiOpen) {
-        return null;
+      const auto = Boolean(bridge.hasAutoFireRequest?.('aura'));
+
+      if (!config.enabled || !bridge.active || bridge.uiOpen) {
+        return auto ? false : null;
+      }
+
+      if (!target) {
+        return auto ? false : null;
       }
 
       const redirected = resolveShot(eye, dir);
 
       if (!redirected) {
+        if (auto) {
+          bridge.requestAutoFire('aura', false);
+          return false;
+        }
+
         return null;
       }
 
