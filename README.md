@@ -13,11 +13,29 @@
 
 | 分类 | 模块 |
 |---|---|
-| Combat | AimBot、TriggerBot、Aura、NoRecoil |
-| Movement | Sprint、NoJumpDelay |
+| Combat | AimBot、TriggerBot、Aura、NoRecoil、**InfiniteAmmo 无限子弹** |
+| Movement | Sprint、NoJumpDelay、**Speed 加速**、**NoSlowdown 无减速** |
 | Player | AntiAim（含 Derp Mode 陀螺）、CustomName |
-| Visual | ESP、Arraylist、Watermark、ClickGui、HudEditor、Keystrokes、Notifications、Fatality 注入动画、ThirdPerson 第三人称 |
+| Visual | ESP、Arraylist、Watermark、ClickGui（Sol / Fatality 双风格）、HudEditor、Keystrokes、Notifications、Fatality 注入动画、ThirdPerson 第三人称 |
 | Misc | Config 配置面板、InputGuard 输入守卫、UnLock、ToggleSounds |
+
+### ClickGui 风格
+
+`ClickGui → Style` 有两套，默认 `Sol`：
+
+- **Sol**：分类悬浮窗，拖拽 + 滚轮，原来的样子
+- **Fatality**：移植自 [BanCN-Re/FatalityClickGui](https://github.com/BanCN-Re/FatalityClickGui)
+  —— 炭黑平铺窗口 + 珊瑚红点缀（`#151515`/`#1C1C1C`/`#FF615A`），左侧分类栏、
+  三列瀑布流模块卡片、勾选框 / 滑条 / 下拉 / 色块行，配色与尺寸取自其 `FaTheme.java`
+
+### 玩法模块
+
+- **Speed**：把 `world.move` 的 `forward/right` 按倍率放大（1.0–4.0），并顺带顶住玩家速度系数；
+  移动指令读完后立刻还原输入，别人看到的还是正常速度
+- **NoSlowdown**：清 `arsenal.sprintLock`、骗过 `blocksSprint` 的 `sinceFire`，
+  可选清 ADS/移动减速系数 —— 开枪和开镜时不再掉速
+- **InfiniteAmmo**：这个游戏的枪是客户端模拟的，直接把 `arsenal.slot.ammo` 顶到容量、
+  取消 `state === 'reloading'`、补满备弹；容量字段自动探测，可用 `Debug Dump` 打印真实字段名
 
 ### Fatality 注入动画
 
@@ -69,6 +87,8 @@ node preview/bgtest.mjs         # 后台 service worker 单测
 - `preview/tptest.html` 第三人称相机推拉
 - `preview/keytest.html` 修饰键匹配、侧键、关页确认
 - `preview/watermarktest.html` Watermark 两种风格 + 渲染循环容错
+- `preview/guipreview.html?style=fatality&cat=Visual` Fatality 风格 ClickGui 定格渲染
+- `preview/gametest.html` Speed / NoSlowdown / InfiniteAmmo 游戏侧行为
 
 ## License
 

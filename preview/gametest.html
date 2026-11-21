@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Speed / NoSlowdown / InfiniteAmmo game-side tests</title>
+<style>
+  html,body{margin:0;padding:0;background:#05060a;color:#d7e6ff;font:13px/1.5 monospace}
+  #out{padding:10px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<pre id="out"></pre>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const lines = [];
+  const record = (ok, label, extra) => {
+    lines.push(`${ok ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
+    out.textContent = lines.join('\n');
+  };
+  window.addEventListener('error', (e) => record(false, 'uncaught', e.message));
+
+  /* ── 假游戏 ─────────────────────────────────────────────── */
+  const slot = { ammo: 0, capacity: 30, reserve: 90 };
+  const arsenal = {
+    state: 'ready',
+    cool: 0,
+    pumpWait: 0,
+    sprintLock: 5,
+    sinceFire: 0,
+    slot,
+    moveSlow: 0.5,
+    blocksSprint() { return this.sinceFire < 2; }
+  };
+  const player = { speedMul: 1, moveSpeed: 4, adsK: 1, slowK: 1 };
+  window.GH = { debug: { arsenal, player, gfx: {}, input: { keys: new Set() } } };
+
+  const configs = new Map();
+  const hooks = { before: [], after: [], world: [], player: [], reset: [] };
+
+  window.SolsticeGame = {
+    onConfig(channel, handler) {
+      if (!configs.has(channel)) configs.set(channel, []);
+      configs.get(channel).push(handler);
+    },
+    onBeforeArsenalUpdate(hook) { hooks.before.push(hook); },
+    onAfterArsenalUpdate(hook) { hooks.after.push(hook); },
+    onWorldMove(hook) { hooks.world.push(hook); },
+    onBeforePlayerUpdate(hook) { hooks.player.push(hook); },
+    onReset(hook) { hooks.reset.push(hook); },
+    getGH() { return window.GH; },
+    wrapAngle(v) { return v; }
+  };
+
+  const send = (channel, payload) => {
+    const list = configs.get(channel);
+    if (!list || list.length === 0) return false;
+    for (const handler of list) handler({ type: 'config', ...payload });
+    return true;
+  };
+
+  /* ── 以「游戏页」身份加载三个模块 ───────────────────────── */
+  const fakeLocation = { hostname: 'www.bilibilitoy.com', pathname: '/toy/golden-hour/index.html' };
+  for (const file of ['../modules/Combat/InfiniteAmmo.js', '../modules/Movement/Speed.js', '../modules/Movement/NoSlowdown.js']) {
+    const src = await (await fetch(file)).text();
+    new Function('location', src + `\n//# sourceURL=${file}`)(fakeLocation);
+  }
+
+  await new Promise((r) => setTimeout(r, 60));
+
+  /* ── InfiniteAmmo ───────────────────────────────────────── */
+  record(send('solstice-combat', { module: 'infiniteammo', enabled: true, magazine: true, reload: true, reserve: true }),
+    'InfiniteAmmo registered its config channel');
+
+  for (const hook of hooks.before) hook();
+  for (const hook of hooks.after) hook();
+
+  record(slot.ammo === 30, 'empty magazine refilled to capacity', `ammo=${slot.ammo}`);
+  record(slot.reserve === 90, 'reserve kept topped up', `reserve=${slot.reserve}`);
+
+  arsenal.state = 'reloading';
+  arsenal.cool = 0.6;
+  arsenal.pumpWait = 0.4;
+  for (const hook of hooks.after) hook();
+  record(arsenal.state === 'ready', 'reload cancelled', `state=${arsenal.state}`);
+  record(arsenal.pumpWait === 0, 'pump wait cleared', `pumpWait=${arsenal.pumpWait}`);
+
+  slot.ammo = 7;
+  arsenal.state = 'ready';
+  for (const hook of hooks.after) hook();
+  record(slot.ammo === 30, 'partial magazine topped up after firing', `ammo=${slot.ammo}`);
+
+  send('solstice-combat', { module: 'infiniteammo', enabled: false });
+  slot.ammo = 4;
+  for (const hook of hooks.after) hook();
+  record(slot.ammo === 4, 'disabled: ammo is left alone', `ammo=${slot.ammo}`);
+
+  /* ── NoSlowdown ─────────────────────────────────────────── */
+  record(send('solstice-movement', { module: 'noslowdown', enabled: true, sprintLock: true, fireSlow: true, adsSlow: true }),
+    'NoSlowdown registered its config channel');
+
+  arsenal.sprintLock = 5;
+  for (const hook of hooks.after) hook();
+  record(arsenal.sprintLock === 0, 'sprint lock cleared', `sprintLock=${arsenal.sprintLock}`);
+  record(arsenal.moveSlow === 0, 'weapon move slowdown cleared', `moveSlow=${arsenal.moveSlow}`);
+  record(player.adsK === 0, 'ads slowdown cleared', `adsK=${player.adsK}`);
+
+  arsenal.sinceFire = 0;
+  record(arsenal.blocksSprint() === false, 'firing no longer blocks sprinting', `sinceFire=${arsenal.sinceFire}`);
+  send('solstice-movement', { module: 'noslowdown', enabled: false });
+  arsenal.sinceFire = 0;
+  record(arsenal.blocksSprint() === true, 'disabled: original sprint block restored');
+
+  /* ── Speed ──────────────────────────────────────────────── */
+  record(send('solstice-movement', { module: 'speed', enabled: true, multiplier: 1.35, input: true }),
+    'Speed registered its config channel');
+
+  const input = { forward: 1, right: 0 };
+  const context = { input, localInput: input };
+  arsenal.sprintLock = 0;
+
+  for (const hook of hooks.world) hook(context);
+  const scaled = context.input.forward;
+  record(Math.abs(scaled - 1.35) < 1e-6, 'world move scales forward by the multiplier', `forward=${scaled}`);
+
+  await Promise.resolve();
+  await new Promise((r) => setTimeout(r, 0));
+  record(Math.abs(input.forward - 1) < 1e-9, 'input restored right after the move call', `forward=${input.forward}`);
+
+  try {
+    for (const hook of hooks.player) hook();
+    record(player.speedMul >= 1.35, 'player speed multiplier boosted', `speedMul=${player.speedMul}`);
+  } catch (error) {
+    record(false, 'player hook threw', String(error && error.message ? error.message : error));
+  }
+
+  try {
+    send('solstice-movement', { module: 'speed', enabled: false });
+    const idle = { input: { forward: 1, right: 0 }, localInput: null };
+    idle.localInput = idle.input;
+    for (const hook of hooks.world) hook(idle);
+    record(Math.abs(idle.input.forward - 1) < 1e-9, 'disabled: speed leaves the input untouched', `forward=${idle.input.forward}`);
+  } catch (error) {
+    record(false, 'world hook threw', String(error && error.message ? error.message : error));
+  }
+
+  out.textContent = lines.join('\n');
+  document.title = lines.some((l) => l.startsWith('FAIL')) ? 'FAIL' : 'ALL-PASS';
+})();
+</script>
+</body>
+</html>

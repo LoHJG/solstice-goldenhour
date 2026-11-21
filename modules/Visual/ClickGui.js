@@ -10,9 +10,17 @@ function drawDim(a,s){
 function drawClickGui(dt){
   const a=S.anim, s=Math.max(0.0001,S.inScale*K);
   const cg=getMod('ClickGui'); if(cg) cg.on=S.open;
-  if(bgImg) bgImg.style.filter=`blur(${(a*((cg.settings.find(x=>x.n==='Blur Strength')||{v:7}).v)).toFixed(2)}px)`;
+  if(bgImg&&cg) bgImg.style.filter=`blur(${(a*((cg.settings.find(x=>x.n==='Blur Strength')||{v:7}).v)).toFixed(2)}px)`;
   if(a<=0.0001) return;
   drawDim(a,S.inScale);
+
+  const styleS=cg?cg.settings.find(x=>x.n==='Style'):null;
+  const styleName=styleS?(styleS.vals[styleS.v]||'Sol'):'Sol';
+  if(styleName==='Fatality'&&typeof drawFatalityClickGui==='function'){
+    drawFatalityClickGui(a,dt);
+    return;
+  }
+
   const isOpen=S.open;
   const gmx=CX+(S.mx-CX)/s, gmy=CY+(S.my-CY)/s;
   let tooltip='';
@@ -367,7 +375,7 @@ register({
   nm:{l:"clickgui",ls:"click gui",n:"ClickGui",ns:"Click Gui"},
   disp:"Style",
   settings:[
-    {t:"e",n:"Style",d:"The style of the ClickGui.",v:0,vals:["Modern"]},
+    {t:"e",n:"Style",d:"The style of the ClickGui.",v:0,vals:["Sol","Fatality"]},
     {t:"e",n:"Animation",d:"The animation of the ClickGui.",v:1,vals:["Zoom","Bounce"]},
     {t:"n",n:"Blur Strength",d:"The strength of the blur.",v:7.0,min:0.0,max:20.0,step:0.1},
     {t:"n",n:"Midclick Rounding",d:"The value to round to when middle-clicking a NumberSetting.",v:1.0,min:0.01,max:1.0,step:0.01}

@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fatality ClickGui preview</title>
+<link rel="stylesheet" href="../extension/overlay.css">
+<style>
+  @font-face{font-family:"Product Sans";src:url("../assets/fonts/Product-Sans-Bold.ttf") format("truetype");font-weight:700;font-display:block}
+  @font-face{font-family:"Product Sans";src:url("../assets/fonts/Product-Sans.ttf") format("truetype");font-weight:400;font-display:block}
+  html,body{margin:0;padding:0;background:#05060a;overflow:hidden}
+  #bg{position:fixed;inset:0;width:100vw;height:100vh;object-fit:cover;opacity:0.5;z-index:0}
+  #err{position:fixed;left:8px;top:6px;z-index:2147483647;color:#ff6b81;font:12px monospace;white-space:pre-wrap;max-width:1500px}
+</style>
+</head>
+<body>
+<img id="bg" src="bg.png">
+<pre id="err"></pre>
+<script src="../extension/boot.js"></script>
+<script src="../js/core.js"></script>
+<script src="../modules/Visual/Interface.js"></script>
+<script src="../modules/Visual/Arraylist.js"></script>
+<script src="../modules/Visual/Watermark.js"></script>
+<script src="../modules/Visual/Notifications.js"></script>
+<script src="../modules/Visual/Fatality.js"></script>
+<script src="../modules/Visual/ThirdPerson.js"></script>
+<script src="../modules/Visual/ClickGuiFatality.js"></script>
+<script src="../modules/Visual/ClickGui.js"></script>
+<script src="../modules/Combat/InfiniteAmmo.js"></script>
+<script src="../modules/Player/AntiAim.js"></script>
+<script src="../modules/Movement/Speed.js"></script>
+<script src="../modules/Movement/NoSlowdown.js"></script>
+<script src="../modules/Misc/InputGuard.js"></script>
+<script src="../modules/Misc/Config.js"></script>
+<script src="../js/main.js"></script>
+<script src="../js/commands.js"></script>
+<script src="../extension/page.js"></script>
+<script>
+(async () => {
+  const err = document.getElementById('err');
+  const log = (m) => { err.textContent += m + '\n'; };
+  window.addEventListener('error', (e) => log('ERR ' + e.message));
+
+  try { await document.fonts.load('700 100px "Product Sans"'); } catch (e) {}
+  await document.fonts.ready;
+  await new Promise((r) => setTimeout(r, 120));
+
+  const cg = getMod('ClickGui');
+  const style = cg.settings.find((s) => s.n === 'Style');
+  const cat = new URLSearchParams(location.search).get('cat');
+  const styleParam = new URLSearchParams(location.search).get('style');
+
+  if (styleParam === 'sol') style.v = 0;
+  else style.v = 1;
+
+  if (cat) {
+    const ft = FT_STATE;
+    ft.cat = Math.max(0, ['Combat', 'Movement', 'Player', 'Visual', 'Misc'].indexOf(cat));
+  }
+
+  const fat = getMod('Fatality');
+  if (fat) { const pi = fat.settings.find((s) => s.n === 'Play on inject'); if (pi) pi.v = 0; setModuleOn(fat, false); }
+  S.open = true;
+  S.ease.p = 1;
+
+  const n = Number(new URLSearchParams(location.search).get('frames') || 6);
+  let ts = 1000;
+  let worst = 0;
+  let total = 0;
+  for (let i = 0; i < n; i += 1) {
+    ts += 16;
+    const t0 = performance.now();
+    frame(ts);
+    const dt = performance.now() - t0;
+    worst = Math.max(worst, dt);
+    total += dt;
+  }
+
+  log(`style=${style.vals[style.v]} cat=${CATS[FT_STATE.cat]} frames=${n}`);
+  document.title = 'GUI-READY';
+})();
+</script>
+</body>
+</html>
