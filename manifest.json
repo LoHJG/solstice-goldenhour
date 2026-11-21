@@ -64,6 +64,9 @@
         "modules/Visual/Notifications.js",
         "modules/Misc/ToggleSounds.js",
         "modules/Misc/UnLock.js",
+        "modules/Misc/AutoDodge.js",
+        "modules/Misc/KillSound.js",
+        "modules/Visual/BulletTracers.js",
         "js/main.js",
         "js/commands.js",
         "extension/page.js"
@@ -88,7 +91,10 @@
         "modules/Player/CustomName.js",
         "modules/Visual/ESP.js",
         "modules/Misc/UnLock.js",
-        "modules/Visual/ThirdPerson.js"
+        "modules/Visual/ThirdPerson.js",
+        "modules/Misc/AutoDodge.js",
+        "modules/Misc/KillSound.js",
+        "modules/Visual/BulletTracers.js"
       ],
       "run_at": "document_start",
       "all_frames": true,

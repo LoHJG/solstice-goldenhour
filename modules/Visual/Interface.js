@@ -47,6 +47,8 @@ function themed(index){
   return lerpC(cols[si%cols.length],cols[(si+1)%cols.length],f);
 }
 
+window.SolsticeThemeColor = (index = 0) => themed(index);
+
 function uiFont(){
   const f=iSet('Font');
   const v=f? (f.vals[f.v]||'Product Sans') : 'Product Sans';

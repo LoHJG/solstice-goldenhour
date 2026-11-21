@@ -205,7 +205,12 @@
     }
 
     const height = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
-    out.set(actor.pos.x, actor.pos.y + height - 0.12, actor.pos.z);
+    const eyeY = Number(actor.eye?.y);
+    out.set(
+      actor.pos.x,
+      Number.isFinite(eyeY) ? eyeY + 0.04 : actor.pos.y + height - 0.14,
+      actor.pos.z
+    );
     return out;
   }
 

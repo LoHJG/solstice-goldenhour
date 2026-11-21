@@ -213,8 +213,10 @@
       const dx = best.x - eye.x;
       const dy = best.y - eye.y;
       const dz = best.z - eye.z;
-      const targetYaw = Math.atan2(-dx, -dz);
-      const targetPitch = Math.atan2(dy, Math.hypot(dx, dz));
+      const recoilYaw = Number(player.recoilYaw) || 0;
+      const recoilPitch = Number(player.recoilPitch) || 0;
+      const targetYaw = Math.atan2(-dx, -dz) - recoilYaw;
+      const targetPitch = Math.atan2(dy, Math.hypot(dx, dz)) - recoilPitch;
       const frameDt = Number.isFinite(dt) ? bridge.clamp(dt, 1 / 240, 0.1) : 1 / 60;
       const factor = 1 - Math.exp(-(30 / bridge.clamp(config.smooth, 1, 20)) * frameDt);
 

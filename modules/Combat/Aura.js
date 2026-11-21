@@ -46,7 +46,7 @@
 
     const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
     const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
-    const range = Math.max(0, Math.min(100, Number(setting(module, 'Range', 20)) || 0));
+    const range = Math.max(0, Math.min(120, Number(setting(module, 'Range', 20)) || 0));
     const config = {
       channel: CHANNEL,
       type: 'config',
@@ -94,7 +94,7 @@
         d: 'The range at which to attack enemies.',
         v: 20,
         min: 0,
-        max: 100,
+        max: 120,
         step: 0.5
       },
       {
@@ -465,7 +465,7 @@
       config = {
         enabled: Boolean(data.enabled),
         mode,
-        range: Number.isFinite(range) ? bridge.clamp(range, 0, 100) : 20,
+        range: Number.isFinite(range) ? bridge.clamp(range, 0, 120) : 20,
         wallCheck: data.wallCheck !== false,
         ads: Boolean(data.ads)
       };
