@@ -33,11 +33,13 @@
     }
 
     const now = performance.now();
+    const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'antiaim',
-      enabled: Boolean(module.on)
+      enabled: Boolean(module.on),
+      mode: modeSetting?.vals?.[modeSetting.v] || 'Jiggle'
     };
     const key = JSON.stringify(config);
 
@@ -58,14 +60,20 @@
 
   register({
     name: 'AntiAim',
-    desc: 'Silently points your server-side view down and away from the nearest enemy.',
+    desc: 'Jiggles or points your server-side view away from enemies.',
     cat: "Player",
     nm: { l: 'antiaim', ls: 'anti aim', n: 'AntiAim', ns: 'Anti Aim' },
-    disp: '',
-    settings: [],
+    disp: 'Mode',
+    settings: [
+      { t: 'e', n: 'Mode', d: 'The anti-aim style.', v: 0, vals: ['Jiggle', 'Yaw'] }
+    ],
     onRender: syncConfig,
-    onEnable() {}
+    onEnable() {
+      syncConfig();
+    }
   });
+
+  setInterval(syncConfig, 250);
 
   function bootGame() {
     let attempts = 0;
@@ -89,7 +97,10 @@
 
   function installGame(bridge) {
     let enabled = false;
+    let mode = 'Jiggle';
     let lastAngles = null;
+    let jiggleSide = 1;
+    let nextJiggle = 0;
 
     function anglesToPoint(eye, point) {
       const dx = point.x - eye.x;
@@ -122,6 +133,20 @@
       };
     }
 
+    function jiggleAngles(player) {
+      const now = performance.now();
+
+      if (now >= nextJiggle) {
+        jiggleSide = -jiggleSide;
+        nextJiggle = now + 35 + Math.random() * 25;
+      }
+
+      return {
+        yaw: bridge.wrapAngle(player.yaw + jiggleSide * 0.6),
+        pitch: bridge.clamp(player.pitch - 0.2, -1.5, 1.5)
+      };
+    }
+
     function spoofFor(player, camera, actors) {
       const aura = bridge.getFeature('aura');
       let angles;
@@ -135,7 +160,7 @@
       }
 
       if (!angles) {
-        angles = antiAngles(player, actors);
+        angles = mode === 'Jiggle' ? jiggleAngles(player) : antiAngles(player, actors);
       }
 
       lastAngles = angles;
@@ -145,9 +170,11 @@
     bridge.onConfig('solstice-combat', (data) => {
       if (data.type === 'config' && data.module === 'antiaim') {
         enabled = Boolean(data.enabled);
+        mode = data.mode === 'Yaw' ? 'Yaw' : 'Jiggle';
 
         if (!enabled) {
           lastAngles = null;
+          nextJiggle = 0;
         }
       }
     });

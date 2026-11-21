@@ -67,6 +67,7 @@
         "modules/Misc/AutoDodge.js",
         "modules/Misc/KillSound.js",
         "modules/Visual/BulletTracers.js",
+        "modules/Combat/CrouchShot.js",
         "js/main.js",
         "js/commands.js",
         "extension/page.js"
@@ -94,7 +95,8 @@
         "modules/Visual/ThirdPerson.js",
         "modules/Misc/AutoDodge.js",
         "modules/Misc/KillSound.js",
-        "modules/Visual/BulletTracers.js"
+        "modules/Visual/BulletTracers.js",
+        "modules/Combat/CrouchShot.js"
       ],
       "run_at": "document_start",
       "all_frames": true,
