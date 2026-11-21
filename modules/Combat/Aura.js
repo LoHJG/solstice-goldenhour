@@ -212,6 +212,29 @@
       return snapshot.players.find((player) => player.id === actor.id) || null;
     }
 
+    function rawSelf() {
+      const debug = bridge.getGH()?.debug;
+      const player = debug?.player;
+      const snapshot = bridge.getRawSnapshot?.();
+
+      if (!player || !snapshot?.players) {
+        return null;
+      }
+
+      return snapshot.players.find((entry) => entry.id === player.id) || null;
+    }
+
+    function rawSelfEye() {
+      const me = rawSelf();
+
+      if (!me) {
+        return null;
+      }
+
+      const eyeHeight = me.sliding ? 0.72 : me.crouch ? 1 : 1.62;
+      return { x: me.x, y: me.y + eyeHeight, z: me.z };
+    }
+
     function rawHeight(player) {
       return player.sliding ? 0.95 : player.crouch ? 1.2 : 1.8;
     }
@@ -361,7 +384,7 @@
 
     function selectTarget(context) {
       const { player, camera, debug, actors } = context;
-      const eye = camera.position;
+      const eye = rawSelfEye() || camera.position;
       const range = Number(config.range) || 0;
       const head = player.pos.clone();
       const candidates = [];
@@ -491,7 +514,7 @@
 
       const camera = bridge.getGH()?.debug?.gfx?.camera;
       const thirdPerson = bridge.getFeature('thirdperson');
-      const origin = thirdPerson?.getEye?.() || eye || camera?.position;
+      const origin = rawSelfEye() || thirdPerson?.getEye?.() || eye || camera?.position;
 
       if (!origin) {
         bridge.requestAutoFire('aura', false);
