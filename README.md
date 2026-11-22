@@ -3,6 +3,6 @@
 
 可使用的控制台命令sol("help")、sol("config")、sol("bind")、sol("server")
 
-[Beta版](https://github.com/LoHJG/solstice-goldenhour/tree/beta)由Ru1X1n9撰稿
+[Beta版(屎)](https://github.com/LoHJG/solstice-goldenhour/tree/beta)由Ru1X1n9撰稿
 
-[这个欺骗客户的最强分支](https://qun.qq.com/universal-share/share?ac=1&authKey=CyDt3y4MQ7%2Fw7cbxxkNBIZ3COzs0mdGV8kcFGQZsrM9L%2FyYuDYMct2EpcznipmjT&busi_data=eyJncm91cENvZGUiOiI4MTcxOTgzNTUiLCJ0b2tlbiI6ImtBdmJTVThhSnpheWJWUCtyNVd5UTQ2MmhZNEZHTnJEYXBWbGtaczB4RTdmbHRCcWtoMzdtYis5UWFYSllhaloiLCJ1aW4iOiIyODY1MTUyNDQzIn0%3D&data=4r-__Dm827Y8InQpmX_0p3gjQXg4SF8y1BO4YAlNQ4bWvswxn8BFbxRcDSATpogWqcYtOZrAkDuT1CEKSUXqUA&svctype=4&tempid=h5_group_info)由bsk10ww&Ru1X1n9撰稿
+[这个欺骗客户的最强分支](https://github.com/bedkillerspacex-boop/alwayswin-cod)由bsk10ww撰稿，这个分支的官方q群[817198355](https://qun.qq.com/universal-share/share?ac=1&authKey=CyDt3y4MQ7%2Fw7cbxxkNBIZ3COzs0mdGV8kcFGQZsrM9L%2FyYuDYMct2EpcznipmjT&busi_data=eyJncm91cENvZGUiOiI4MTcxOTgzNTUiLCJ0b2tlbiI6ImtBdmJTVThhSnpheWJWUCtyNVd5UTQ2MmhZNEZHTnJEYXBWbGtaczB4RTdmbHRCcWtoMzdtYis5UWFYSllhaloiLCJ1aW4iOiIyODY1MTUyNDQzIn0%3D&data=4r-__Dm827Y8InQpmX_0p3gjQXg4SF8y1BO4YAlNQ4bWvswxn8BFbxRcDSATpogWqcYtOZrAkDuT1CEKSUXqUA&svctype=4&tempid=h5_group_info)
