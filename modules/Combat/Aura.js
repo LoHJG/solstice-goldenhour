@@ -148,6 +148,21 @@
     const lastAttacks = new WeakMap();
     const remoteTracks = new WeakMap();
     const LEAD_SECONDS = 0.1;
+    let latestSnapshot = null;
+
+    function currentSnapshot() {
+      const snapshot = bridge.getRawSnapshot?.();
+
+      if (!snapshot?.players) {
+        return latestSnapshot;
+      }
+
+      if (!latestSnapshot || (Number(snapshot.tick) || 0) >= (Number(latestSnapshot.tick) || 0)) {
+        latestSnapshot = snapshot;
+      }
+
+      return latestSnapshot;
+    }
 
     function releaseAds() {
       if (!syntheticAds) {
@@ -203,7 +218,7 @@
     }
 
     function rawPlayer(actor) {
-      const snapshot = bridge.getRawSnapshot?.();
+      const snapshot = currentSnapshot();
 
       if (!snapshot || !actor || actor.id === undefined) {
         return null;
@@ -215,7 +230,7 @@
     function rawSelf() {
       const debug = bridge.getGH()?.debug;
       const player = debug?.player;
-      const snapshot = bridge.getRawSnapshot?.();
+      const snapshot = currentSnapshot();
 
       if (!player || !snapshot?.players) {
         return null;
@@ -240,14 +255,23 @@
     }
 
     function rawHeadPoint(actor, out) {
+      if (!actor?.pos || typeof bridge.headPoint !== 'function') {
+        return false;
+      }
+
+      bridge.headPoint(actor, out);
+
       const player = rawPlayer(actor);
 
       if (!player || player.alive === false) {
         return false;
       }
 
-      const eyeHeight = player.sliding ? 0.72 : player.crouch ? 1 : 1.62;
-      out.set(player.x, player.y + eyeHeight + 0.04, player.z);
+      out.set(
+        player.x + (out.x - actor.pos.x),
+        player.y + (out.y - actor.pos.y),
+        player.z + (out.z - actor.pos.z)
+      );
       return true;
     }
 
