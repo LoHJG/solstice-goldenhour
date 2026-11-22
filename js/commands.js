@@ -24,6 +24,12 @@
       aliases: ['c'],
       description: 'Manage configurations',
       usage: 'config <load/save/list/delete/default> [name]'
+    },
+    {
+      name: 'server',
+      aliases: ['srv'],
+      description: 'Sets the CustomServer address and selects Custom mode',
+      usage: 'server ip:port'
     }
   ];
   const NAMED_KEYS = {
@@ -606,6 +612,26 @@
     log(`Set the default configuration to ${name}.`);
   }
 
+  function commandServer(address) {
+    if (!address) {
+      const current = window.SolsticeCustomServer?.current?.();
+      if (current) {
+        log(`CustomServer: ${current.mode}${current.target ? ` · ${current.target}` : ''}`);
+      } else {
+        error('CustomServer is not loaded.');
+      }
+      return;
+    }
+
+    try {
+      const target = window.SolsticeCustomServer?.set(address);
+      if (!target) throw new Error('CustomServer is not loaded.');
+      log(`CustomServer set to ${target} (Custom mode).`);
+    } catch (cause) {
+      error(cause.message || String(cause));
+    }
+  }
+
   function commandConfig(action, name, extra) {
     if (!action) {
       error(COMMANDS.find((command) => command.name === 'config').usage);
@@ -677,6 +703,8 @@
       commandBind(parts[1], parts[2]);
     } else if (command.name === 'config') {
       commandConfig(parts[1], parts[2], parts[3]);
+    } else if (command.name === 'server') {
+      commandServer(parts.slice(1).join(' '));
     }
   }
 
@@ -734,6 +762,7 @@
     help: commandHelp,
     bind: commandBind,
     config: commandConfig,
+    server: commandServer,
     execute,
     saveModuleBind,
     commands: COMMANDS.map((command) => command.name)
@@ -752,10 +781,14 @@
     window.config = commandConfig;
   }
 
+  if (typeof window.server === 'undefined') {
+    window.server = commandServer;
+  }
+
   if (!window.__solsticeConsoleHint) {
     window.__solsticeConsoleHint = true;
     console.log(
-      '%c[Solstice]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main")',
+      '%c[Solstice]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main") | sol("server ip:port")',
       'color:#ff5fa2;font-weight:bold',
       'color:inherit'
     );
