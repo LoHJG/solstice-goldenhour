@@ -6,6 +6,7 @@
   const HVH_ORIGIN = 'https://play.yokaicat.cc:8123';
   const MODES = ['Official', 'HVH', 'Custom'];
   const STORAGE_KEY = 'solstice.customserver';
+  let stateCache = null;
 
   function normalizeServer(value) {
     let text = String(value || '').trim();
@@ -25,20 +26,35 @@
   }
 
   function loadState() {
+    if (stateCache) return stateCache;
+
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-      return {
+      stateCache = {
         mode: Math.min(2, Math.max(0, Number(saved.mode) || 0)),
         custom: typeof saved.custom === 'string' ? saved.custom : ''
       };
     } catch {
-      return { mode: 0, custom: '' };
+      stateCache = { mode: 0, custom: '' };
     }
+
+    return stateCache;
   }
 
   function saveState(mode, custom) {
+    const next = {
+      mode: Math.min(2, Math.max(0, Number(mode) || 0)),
+      custom: typeof custom === 'string' ? custom : ''
+    };
+
+    if (stateCache && stateCache.mode === next.mode && stateCache.custom === next.custom) {
+      return;
+    }
+
+    stateCache = next;
+
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode, custom }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
 
     }
@@ -61,11 +77,23 @@
     return '';
   }
 
+  let frameCache = null;
+  let frameCacheAt = 0;
+
   function findGameFrames() {
+    const now = performance.now();
+
+    if (frameCache && now - frameCacheAt < 1000 &&
+        frameCache.every((frame) => frame.isConnected)) {
+      return frameCache;
+    }
+
     const frames = [];
     for (const frame of document.querySelectorAll('iframe')) {
       if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) frames.push(frame);
     }
+    frameCache = frames;
+    frameCacheAt = now;
     return frames;
   }
 

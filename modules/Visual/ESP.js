@@ -15,10 +15,19 @@
 
   let lastSentKey = '';
   let lastSentAt = 0;
+  let cachedFrame = null;
 
   function findGameFrame() {
+    if (cachedFrame?.isConnected &&
+        cachedFrame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      return cachedFrame;
+    }
+
+    cachedFrame = null;
+
     for (const frame of document.querySelectorAll('iframe')) {
       if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+        cachedFrame = frame;
         return frame;
       }
     }
@@ -111,7 +120,6 @@
 
   function installGame(bridge) {
     const BOX_HALF_WIDTH = 0.35;
-    const FRIEND_COLOR = [0, 255, 0];
     let config = {
       enabled: false,
       filled: true,
@@ -125,6 +133,19 @@
     let overlayHeight = 0;
     let overlayDpr = 0;
     let renderHookInstalled = false;
+    let enemyFillStyle = 'rgba(255, 80, 160, 0.25)';
+    let enemyStrokeStyle = 'rgba(255, 80, 160, 1)';
+    const FRIEND_FILL_STYLE = 'rgba(0, 255, 0, 0.25)';
+    const FRIEND_STROKE_STYLE = 'rgba(0, 255, 0, 1)';
+    const corners = Array.from({ length: 8 }, () => [0, 0, 0]);
+    const projected = Array.from({ length: 8 }, () => [0, 0]);
+
+    function updateEnemyStyles(color) {
+      enemyFillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.25)`;
+      enemyStrokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 1)`;
+    }
+
+    updateEnemyStyles(config.color);
 
     function ensureOverlay() {
       if (overlay) {
@@ -185,10 +206,8 @@
       }
     }
 
-    function convexHull(rawPoints) {
-      const points = rawPoints
-        .slice()
-        .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    function convexHull(points) {
+      points.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
 
       if (points.length < 3) {
         return [];
@@ -298,16 +317,19 @@
         const maxZ = z + BOX_HALF_WIDTH;
         const minY = y + 0.01;
         const maxY = y + actorHeight + 0.02;
-        const corners = [
-          [minX, minY, minZ], [minX, minY, maxZ],
-          [minX, maxY, minZ], [minX, maxY, maxZ],
-          [maxX, minY, minZ], [maxX, minY, maxZ],
-          [maxX, maxY, minZ], [maxX, maxY, maxZ]
-        ];
-        const projected = [];
+        corners[0][0] = minX; corners[0][1] = minY; corners[0][2] = minZ;
+        corners[1][0] = minX; corners[1][1] = minY; corners[1][2] = maxZ;
+        corners[2][0] = minX; corners[2][1] = maxY; corners[2][2] = minZ;
+        corners[3][0] = minX; corners[3][1] = maxY; corners[3][2] = maxZ;
+        corners[4][0] = maxX; corners[4][1] = minY; corners[4][2] = minZ;
+        corners[5][0] = maxX; corners[5][1] = minY; corners[5][2] = maxZ;
+        corners[6][0] = maxX; corners[6][1] = maxY; corners[6][2] = minZ;
+        corners[7][0] = maxX; corners[7][1] = maxY; corners[7][2] = maxZ;
+        let projectedCount = 0;
         let valid = true;
 
-        for (const corner of corners) {
+        for (let index = 0; index < 8; index += 1) {
+          const corner = corners[index];
           point.set(corner[0], corner[1], corner[2]);
 
           const dx = point.x - camera.position.x;
@@ -331,23 +353,20 @@
             break;
           }
 
-          projected.push([
-            (point.x * 0.5 + 0.5) * width,
-            (-point.y * 0.5 + 0.5) * height
-          ]);
+          const pair = projected[projectedCount++];
+          pair[0] = (point.x * 0.5 + 0.5) * width;
+          pair[1] = (-point.y * 0.5 + 0.5) * height;
         }
 
         if (!valid) {
           continue;
         }
 
-        const hull = convexHull(projected);
+        const hull = convexHull(projected.slice(0, projectedCount));
 
         if (hull.length < 3) {
           continue;
         }
-
-        const color = isFriend ? FRIEND_COLOR : config.color;
 
         overlayCtx.beginPath();
         overlayCtx.moveTo(hull[0][0], hull[0][1]);
@@ -359,11 +378,11 @@
         overlayCtx.closePath();
 
         if (config.filled) {
-          overlayCtx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0.25)`;
+          overlayCtx.fillStyle = isFriend ? FRIEND_FILL_STYLE : enemyFillStyle;
           overlayCtx.fill();
         }
 
-        overlayCtx.strokeStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, 1)`;
+        overlayCtx.strokeStyle = isFriend ? FRIEND_STROKE_STYLE : enemyStrokeStyle;
         overlayCtx.stroke();
       }
     }
@@ -424,6 +443,8 @@
         friends: data.friends !== false,
         color
       };
+
+      updateEnemyStyles(color);
 
       if (!config.enabled) {
         clearOverlay();

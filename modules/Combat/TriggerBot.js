@@ -15,10 +15,19 @@
 
   let lastSentKey = '';
   let lastSentAt = 0;
+  let cachedFrame = null;
 
   function findGameFrame() {
+    if (cachedFrame?.isConnected &&
+        cachedFrame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      return cachedFrame;
+    }
+
+    cachedFrame = null;
+
     for (const frame of document.querySelectorAll('iframe')) {
       if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+        cachedFrame = frame;
         return frame;
       }
     }
@@ -104,6 +113,7 @@
   function installGame(bridge) {
     let enabled = false;
     let wallCheck = true;
+    let workForward = null;
 
     bridge.onConfig('solstice-combat', (data) => {
       if (data.type !== 'config' || data.module !== 'triggerbot') {
@@ -132,7 +142,7 @@
       }
 
       const { player, camera, actors } = context;
-      const forward = player.pos.clone();
+      const forward = workForward || (workForward = player.pos.clone());
       camera.getWorldDirection(forward);
 
       const eye = camera.position;

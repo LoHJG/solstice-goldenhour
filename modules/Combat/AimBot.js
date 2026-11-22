@@ -15,10 +15,19 @@
 
   let lastSentKey = '';
   let lastSentAt = 0;
+  let cachedFrame = null;
 
   function findGameFrame() {
+    if (cachedFrame?.isConnected &&
+        cachedFrame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      return cachedFrame;
+    }
+
+    cachedFrame = null;
+
     for (const frame of document.querySelectorAll('iframe')) {
       if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+        cachedFrame = frame;
         return frame;
       }
     }
@@ -120,6 +129,9 @@
       wallCheck: true,
       rightClick: false
     };
+    let workForward = null;
+    let workHead = null;
+    let workProjected = null;
 
     bridge.onConfig('solstice-combat', (data) => {
       if (data.type !== 'config' || data.module !== 'aimbot') {
@@ -156,9 +168,9 @@
         return;
       }
 
-      const forward = player.pos.clone();
-      const head = player.pos.clone();
-      const projected = player.pos.clone();
+      const forward = workForward || (workForward = player.pos.clone());
+      const head = workHead || (workHead = player.pos.clone());
+      const projected = workProjected || (workProjected = player.pos.clone());
       camera.getWorldDirection(forward);
 
       const eye = camera.position;

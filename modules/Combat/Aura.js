@@ -15,10 +15,19 @@
 
   let lastSentKey = '';
   let lastSentAt = 0;
+  let cachedFrame = null;
 
   function findGameFrame() {
+    if (cachedFrame?.isConnected &&
+        cachedFrame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      return cachedFrame;
+    }
+
+    cachedFrame = null;
+
     for (const frame of document.querySelectorAll('iframe')) {
       if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+        cachedFrame = frame;
         return frame;
       }
     }
@@ -149,6 +158,9 @@
     const remoteTracks = new WeakMap();
     const LEAD_SECONDS = 0.1;
     let latestSnapshot = null;
+    let latestSnapshotPlayers = new Map();
+    let aimScratch = null;
+    let cachedAim = null;
 
     function currentSnapshot() {
       const snapshot = bridge.getRawSnapshot?.();
@@ -157,8 +169,15 @@
         return latestSnapshot;
       }
 
-      if (!latestSnapshot || (Number(snapshot.tick) || 0) >= (Number(latestSnapshot.tick) || 0)) {
+      if (!latestSnapshot ||
+          (Number(snapshot.tick) || 0) >= (Number(latestSnapshot.tick) || 0) ||
+          (Number(snapshot.time) || 0) > (Number(latestSnapshot.time) || 0)) {
         latestSnapshot = snapshot;
+        latestSnapshotPlayers.clear();
+
+        for (const player of snapshot.players) {
+          latestSnapshotPlayers.set(player.id, player);
+        }
       }
 
       return latestSnapshot;
@@ -218,25 +237,26 @@
     }
 
     function rawPlayer(actor) {
-      const snapshot = currentSnapshot();
+      currentSnapshot();
 
-      if (!snapshot || !actor || actor.id === undefined) {
+      if (!latestSnapshot || !actor || actor.id === undefined) {
         return null;
       }
 
-      return snapshot.players.find((player) => player.id === actor.id) || null;
+      return latestSnapshotPlayers.get(actor.id) || null;
     }
 
     function rawSelf() {
+      currentSnapshot();
+
       const debug = bridge.getGH()?.debug;
       const player = debug?.player;
-      const snapshot = currentSnapshot();
 
-      if (!player || !snapshot?.players) {
+      if (!player || !latestSnapshot) {
         return null;
       }
 
-      return snapshot.players.find((entry) => entry.id === player.id) || null;
+      return latestSnapshotPlayers.get(player.id) || null;
     }
 
     function rawSelfEye() {
@@ -255,17 +275,13 @@
     }
 
     function rawHeadPoint(actor, out) {
-      if (!actor?.pos || typeof bridge.headPoint !== 'function') {
+      const player = rawPlayer(actor);
+
+      if (!player || player.alive === false || !actor?.pos || typeof bridge.headPoint !== 'function') {
         return false;
       }
 
       bridge.headPoint(actor, out);
-
-      const player = rawPlayer(actor);
-
-      if (!player || player.alive === false) {
-        return false;
-      }
 
       out.set(
         player.x + (out.x - actor.pos.x),
@@ -353,9 +369,10 @@
 
     function aimPoint(actor, eye, debug) {
       const range = Number(config.range) || 0;
+      const rangeSq = range * range;
       const raw = rawPlayer(actor);
       const lead = raw ? null : remoteLeadOffset(actor);
-      const point = debug.player.pos.clone();
+      const point = aimScratch || (aimScratch = debug.player.pos.clone());
 
       if (!rawHeadPoint(actor, point)) {
         bridge.headPoint(actor, point);
@@ -371,7 +388,7 @@
       let dy = point.y - eye.y;
       let dz = point.z - eye.z;
 
-      if (Math.hypot(dx, dy, dz) <= range) {
+      if (dx * dx + dy * dy + dz * dz <= rangeSq) {
         const visible = !config.wallCheck || bridge.worldLineClear(eye, point);
 
         if (visible) {
@@ -397,7 +414,7 @@
       dz = point.z - eye.z;
 
       if (
-        Math.hypot(dx, dy, dz) <= range &&
+        dx * dx + dy * dy + dz * dz <= rangeSq &&
         (!config.wallCheck || bridge.worldLineClear(eye, point))
       ) {
         return { x: point.x, y: point.y, z: point.z };
@@ -410,7 +427,8 @@
       const { player, camera, debug, actors } = context;
       const eye = rawSelfEye() || camera.position;
       const range = Number(config.range) || 0;
-      const head = player.pos.clone();
+      const rangeSq = range * range;
+      const head = aimScratch || (aimScratch = player.pos.clone());
       const candidates = [];
 
       for (const actor of actors) {
@@ -418,18 +436,22 @@
           continue;
         }
 
-        bridge.headPoint(actor, head);
         const raw = rawPlayer(actor);
 
         if (raw && raw.alive === false) {
           continue;
         }
 
-        rawHeadPoint(actor, head);
+        if (!rawHeadPoint(actor, head)) {
+          bridge.headPoint(actor, head);
+        }
 
-        const distance = Math.hypot(head.x - eye.x, head.y - eye.y, head.z - eye.z);
+        const dx = head.x - eye.x;
+        const dy = head.y - eye.y;
+        const dz = head.z - eye.z;
+        const distance = dx * dx + dy * dy + dz * dz;
 
-        if (distance > range) {
+        if (distance > rangeSq) {
           continue;
         }
 
@@ -485,6 +507,7 @@
       if (!config.enabled) {
         target = null;
         singleTarget = null;
+        cachedAim = null;
         releaseAds();
         bridge.requestAutoFire('aura', false);
         return;
@@ -495,6 +518,7 @@
       if (!context) {
         target = null;
         singleTarget = null;
+        cachedAim = null;
         releaseAds();
         bridge.requestAutoFire('aura', false);
         return;
@@ -504,6 +528,7 @@
 
       if (!selected) {
         target = null;
+        cachedAim = null;
 
         if (config.mode === 'Single') {
           singleTarget = null;
@@ -515,6 +540,11 @@
       }
 
       target = selected.actor;
+      cachedAim = {
+        actor: selected.actor,
+        point: selected.point,
+        tick: Number(currentSnapshot()?.tick) || 0
+      };
       setAds(config.ads);
       applySilentAds();
       bridge.requestAutoFire('aura', true);
@@ -545,7 +575,10 @@
         return auto ? false : null;
       }
 
-      const point = aimPoint(target, origin, bridge.getGH().debug);
+      const point = cachedAim && cachedAim.actor === target &&
+        cachedAim.tick === (Number(currentSnapshot()?.tick) || 0)
+        ? cachedAim.point
+        : aimPoint(target, origin, bridge.getGH().debug);
 
       if (!point) {
         bridge.requestAutoFire('aura', false);
@@ -669,6 +702,7 @@
       if (!config.enabled) {
         target = null;
         singleTarget = null;
+        cachedAim = null;
         releaseAds();
         bridge.requestAutoFire('aura', false);
       }

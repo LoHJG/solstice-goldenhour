@@ -26,6 +26,68 @@
   let latestOnlineWorldAt = 0;
   let latestOnlineJumpHeld = false;
   let lastInputState = '';
+  const losCache = new Map();
+  let losCacheWorld = null;
+  let losCacheTick = -1;
+  let losCacheOnline = false;
+
+  function losKey(from, to) {
+    return `${Math.round(from.x * 1000)},${Math.round(from.y * 1000)},${Math.round(from.z * 1000)},` +
+      `${Math.round(to.x * 1000)},${Math.round(to.y * 1000)},${Math.round(to.z * 1000)}`;
+  }
+
+  function worldBlocked(from, to) {
+    if (!from || !to) {
+      return false;
+    }
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dz = to.z - from.z;
+    const length = Math.hypot(dx, dy, dz);
+
+    if (length < 1e-4) {
+      return false;
+    }
+
+    const tick = latestRawSnapshot?.tick || Math.floor(performance.now() / 16);
+    const online = document.body.classList.contains('online-session') &&
+      latestOnlineWorld &&
+      typeof latestOnlineWorld.raycast === 'function' &&
+      performance.now() - latestOnlineWorldAt < 1000;
+    const world = online ? latestOnlineWorld : window.GH?.debug?.world;
+
+    if (world !== losCacheWorld || tick !== losCacheTick || online !== losCacheOnline) {
+      losCache.clear();
+      losCacheWorld = world;
+      losCacheTick = tick;
+      losCacheOnline = online;
+    }
+
+    const key = losKey(from, to);
+    if (losCache.has(key)) {
+      return losCache.get(key);
+    }
+
+    let blocked = false;
+
+    if (online && typeof world?.raycast === 'function') {
+      const dir = { x: dx / length, y: dy / length, z: dz / length };
+      const limit = Math.max(0, length - 0.02);
+      blocked = typeof world.raycastBlocked === 'function'
+        ? Boolean(world.raycastBlocked(from, dir, limit))
+        : Boolean(world.raycast(from, dir, limit));
+    } else if (typeof world?.clear === 'function') {
+      blocked = !world.clear(from, to);
+    }
+
+    if (losCache.size > 512) {
+      losCache.clear();
+    }
+
+    losCache.set(key, blocked);
+    return blocked;
+  }
 
   const autoFireRequests = new Set();
   const recoilSuppressors = new Set();
@@ -329,35 +391,7 @@
       return true;
     }
 
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const dz = to.z - from.z;
-    const length = Math.hypot(dx, dy, dz);
-
-    if (length < 1e-4) {
-      return true;
-    }
-
-    const online = document.body.classList.contains('online-session') &&
-      latestOnlineWorld &&
-      typeof latestOnlineWorld.raycast === 'function' &&
-      performance.now() - latestOnlineWorldAt < 1000;
-
-    if (online) {
-      return !latestOnlineWorld.raycast(
-        from,
-        { x: dx / length, y: dy / length, z: dz / length },
-        Math.max(0, length - 0.02)
-      );
-    }
-
-    const world = window.GH?.debug?.world;
-
-    if (typeof world?.clear === 'function') {
-      return world.clear(from, to);
-    }
-
-    return true;
+    return !worldBlocked(from, to);
   }
 
   function rayAabb(ox, oy, oz, dx, dy, dz, minX, minY, minZ, maxX, maxY, maxZ, maxDistance) {
@@ -628,7 +662,86 @@
     import(moduleUrl).then(({ World }) => {
       const prototype = World?.prototype;
 
-      if (!prototype || typeof prototype.move !== 'function' || prototype.move.__solsticeRuntimeWorldHooked) {
+      if (!prototype) {
+        return;
+      }
+
+      if (typeof prototype.raycastBlocked !== 'function') {
+        prototype.raycastBlocked = function raycastBlocked(origin, dir, limit = 140) {
+          let remaining = Math.max(0, Number(limit) || 0);
+          if (!(remaining > 0)) return false;
+
+          this.queryId = (this.queryId + 1) >>> 0;
+          if (!this.queryId) {
+            this.seen.fill(0);
+            this.queryId = 1;
+          }
+
+          let x = Math.floor(origin.x / 4);
+          let z = Math.floor(origin.z / 4);
+          let travelled = 0;
+          const sx = Math.sign(dir.x);
+          const sz = Math.sign(dir.z);
+          const dx = sx ? Math.abs(4 / dir.x) : Infinity;
+          const dz = sz ? Math.abs(4 / dir.z) : Infinity;
+          let tx = sx ? ((x + (sx > 0 ? 1 : 0)) * 4 - origin.x) / dir.x : Infinity;
+          let tz = sz ? ((z + (sz > 0 ? 1 : 0)) * 4 - origin.z) / dir.z : Infinity;
+
+          while (travelled <= remaining) {
+            for (const index of this.grid.get(x)?.get(z) || []) {
+              if (this.seen[index] === this.queryId) continue;
+              this.seen[index] = this.queryId;
+              const box = this.colliders[index];
+              if (box.noRay) continue;
+
+              let near = 0;
+              let far = remaining;
+              let hit = true;
+
+              for (let axis = 0; axis < 3; axis += 1) {
+                const o = axis === 0 ? origin.x : axis === 1 ? origin.y : origin.z;
+                const d = axis === 0 ? dir.x : axis === 1 ? dir.y : dir.z;
+                const min = box.min[axis];
+                const max = box.max[axis];
+
+                if (Math.abs(d) < 1e-9) {
+                  if (o < min || o > max) {
+                    hit = false;
+                    break;
+                  }
+                  continue;
+                }
+
+                let a = (min - o) / d;
+                let b = (max - o) / d;
+                if (a > b) [a, b] = [b, a];
+                if (a > near) near = a;
+                far = Math.min(far, b);
+                if (near > far) {
+                  hit = false;
+                  break;
+                }
+              }
+
+              if (hit && far >= 0 && near < remaining) return true;
+            }
+
+            if (tx <= tz) {
+              travelled = tx;
+              tx += dx;
+              x += sx;
+            } else {
+              travelled = tz;
+              tz += dz;
+              z += sz;
+            }
+          }
+
+          return false;
+        };
+      }
+
+      if (typeof prototype.move !== 'function' || prototype.move.__solsticeRuntimeWorldHooked) {
         return;
       }
 
@@ -725,6 +838,7 @@
     isEnemy,
     headPoint,
     worldLineClear,
+    worldBlocked,
     rayAabb,
     nearestEnemy,
     clamp,
