@@ -55,6 +55,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'CustomName',
     desc: 'Allows you to customize your operator callsign.',
     cat: 'Player',

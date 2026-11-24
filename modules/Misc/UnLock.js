@@ -55,6 +55,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'UnLock',
     desc: 'Unlocks all weapons and camos.',
     cat: 'Misc',

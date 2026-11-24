@@ -127,6 +127,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'Keystrokes',
     desc: 'Shows keystrokes on screen',
     cat: 'Visual',

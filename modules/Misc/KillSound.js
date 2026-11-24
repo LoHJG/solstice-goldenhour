@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
@@ -9,6 +9,7 @@
   const CHANNEL = 'solstice-misc';
   const KILL_CHANNEL = 'solstice-kill';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const HEARTBEAT_MS = 500;
   const SOUNDS = {
     Cash: 'cash.wav',
@@ -22,7 +23,7 @@
 
   function findGameFrame() {
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         return frame;
       }
     }
@@ -190,6 +191,13 @@
 
       enabled = Boolean(data.enabled);
     });
+
+    if (bridge.game === 'potatoepic') {
+      bridge.onKill(() => {
+        if (enabled) sendKill();
+      });
+      return;
+    }
 
     setInterval(installHook, 500);
     installHook();

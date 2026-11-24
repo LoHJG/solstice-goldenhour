@@ -1,0 +1,635 @@
+(() => {
+  'use strict';
+
+  if (window.SolsticeGame?.game === 'potatoepic') {
+    return;
+  }
+
+  const PARENT_ORIGIN = 'https://www.bilibili.com';
+  const configHandlers = new Map();
+  const frameCallbacks = [];
+  const autoFireRequests = new Set();
+  const recoilSuppressors = new Set();
+  const killCallbacks = [];
+  let game = null;
+  let gfx = null;
+  let hookedGame = null;
+  let lastKillCount = null;
+  let lastFrameAt = 0;
+
+  function makeVector(x = 0, y = 0, z = 0) {
+    return {
+      x,
+      y,
+      z,
+      set(nx, ny, nz) {
+        this.x = nx;
+        this.y = ny;
+        this.z = nz;
+        return this;
+      },
+      copy(vector) {
+        this.x = Number(vector?.x) || 0;
+        this.y = Number(vector?.y) || 0;
+        this.z = Number(vector?.z) || 0;
+        return this;
+      },
+      clone() {
+        return makeVector(this.x, this.y, this.z);
+      },
+      project(camera) {
+        camera.project(this, this);
+        return this;
+      }
+    };
+  }
+
+  function vectorFrom(array) {
+    return makeVector(Number(array?.[0]) || 0, Number(array?.[1]) || 0, Number(array?.[2]) || 0);
+  }
+
+  function entityPosition(entity) {
+    const alpha = Number.isFinite(Number(game?.frameA)) ? Number(game.frameA) : 1;
+    const position = typeof entity?.ipos === 'function' ? entity.ipos(alpha) : entity?.pos;
+    return vectorFrom(position);
+  }
+
+  function entityAimPoint(entity) {
+    const position = entityPosition(entity);
+    const height = Math.max(0.2, Number(entity?.h) || 1.8);
+
+    let minY = position.y;
+    let maxY = position.y + height;
+
+    const box = entityBox(entity);
+    if (box) {
+      minY = Number(box[1]);
+      maxY = Number(box[4]);
+    }
+
+    if (!Number.isFinite(minY) || !Number.isFinite(maxY) || maxY <= minY) {
+      minY = position.y;
+      maxY = position.y + height;
+    }
+
+    return makeVector(
+      position.x,
+      minY + (maxY - minY) * 0.78,
+      position.z
+    );
+  }
+
+  function entityBox(entity) {
+    if (typeof entity?.box !== 'function') return null;
+
+    let box;
+    try {
+      box = entity.box();
+    } catch {
+      return null;
+    }
+
+    if (!Array.isArray(box) || box.length < 6) return null;
+    if (!box.every((value) => Number.isFinite(Number(value)))) return null;
+
+    const position = entityPosition(entity);
+    const source = entity.pos;
+    const dx = position.x - (Number(source?.[0]) || 0);
+    const dy = position.y - (Number(source?.[1]) || 0);
+    const dz = position.z - (Number(source?.[2]) || 0);
+
+    return [
+      Number(box[0]) + dx,
+      Number(box[1]) + dy,
+      Number(box[2]) + dz,
+      Number(box[3]) + dx,
+      Number(box[4]) + dy,
+      Number(box[5]) + dz
+    ];
+  }
+
+  function isAlive(entity) {
+    return Boolean(entity && !entity.dead && !(Number(entity.deathTime) > 0));
+  }
+
+  function playerProxy(entity) {
+    return {
+      _entity: entity,
+      get pos() {
+        return entityPosition(entity);
+      },
+      get yaw() {
+        return Number(entity.yaw) || 0;
+      },
+      set yaw(value) {
+        entity.yaw = value;
+      },
+      get pitch() {
+        return Number(entity.pitch) || 0;
+      },
+      set pitch(value) {
+        entity.pitch = value;
+      },
+      get team() {
+        return 0;
+      },
+      get alive() {
+        return isAlive(entity);
+      },
+      get e() {
+        return { h: Number(entity.h) || 1.8 };
+      },
+      get box() {
+        return entityBox(entity);
+      },
+      get recoilYaw() {
+        return Number(entity.recoilYaw) || 0;
+      },
+      set recoilYaw(value) {
+        entity.recoilYaw = Number(value) || 0;
+      },
+      get recoilPitch() {
+        return Number(entity.recoilPitch) || 0;
+      },
+      set recoilPitch(value) {
+        entity.recoilPitch = Number(value) || 0;
+      },
+      get shake() {
+        return Number(entity.shake) || 0;
+      },
+      set shake(value) {
+        entity.shake = Number(value) || 0;
+      },
+      get gunShake() {
+        return Number(entity.gunShake) || 0;
+      },
+      set gunShake(value) {
+        entity.gunShake = Number(value) || 0;
+      },
+      get kickPitch() {
+        return Number(entity.kickPitch) || 0;
+      },
+      set kickPitch(value) {
+        entity.kickPitch = Number(value) || 0;
+      },
+      get kickRoll() {
+        return Number(entity.kickRoll) || 0;
+      },
+      set kickRoll(value) {
+        entity.kickRoll = Number(value) || 0;
+      },
+      get kickPS() {
+        return Number(entity.kickPS) || 0;
+      },
+      set kickPS(value) {
+        entity.kickPS = Number(value) || 0;
+      },
+      get kickRS() {
+        return Number(entity.kickRS) || 0;
+      },
+      set kickRS(value) {
+        entity.kickRS = Number(value) || 0;
+      }
+    };
+  }
+
+  function actorProxy(entity) {
+    return {
+      _entity: entity,
+      get pos() {
+        return entityPosition(entity);
+      },
+      get team() {
+        return 1;
+      },
+      get alive() {
+        return isAlive(entity);
+      },
+      get e() {
+        return { h: Number(entity.h) || 1.8 };
+      },
+      get box() {
+        return entityBox(entity);
+      },
+      get isK9() {
+        return false;
+      }
+    };
+  }
+
+  function cameraProxy() {
+    return {
+      get position() {
+        const position = game?.renderer?.camPos;
+        if (position) return vectorFrom(position);
+        return vectorFrom([
+          game?.player?.pos?.[0],
+          Number(game?.player?.pos?.[1] || 0) + 1.62,
+          game?.player?.pos?.[2]
+        ]);
+      },
+      getWorldDirection(out = makeVector()) {
+        if (game?.lookDir) {
+          const direction = game.lookDir();
+          return out.set(direction[0], direction[1], direction[2]);
+        }
+        const yaw = Number(game?.player?.yaw) || 0;
+        const pitch = Number(game?.player?.pitch) || 0;
+        const cos = Math.cos(pitch);
+        return out.set(-Math.sin(yaw) * cos, Math.sin(pitch), -Math.cos(yaw) * cos);
+      },
+      project(point, out = point) {
+        const matrix = game?.renderer?.vp;
+        if (!matrix) {
+          out.x = Infinity;
+          out.y = Infinity;
+          out.z = -2;
+          return out;
+        }
+        const x = Number(point.x) || 0;
+        const y = Number(point.y) || 0;
+        const z = Number(point.z) || 0;
+        const cx = matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12];
+        const cy = matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13];
+        const cz = matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
+        const cw = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
+        if (!Number.isFinite(cw) || Math.abs(cw) < 1e-8) {
+          out.x = Infinity;
+          out.y = Infinity;
+          out.z = -2;
+          return out;
+        }
+        out.x = cx / cw;
+        out.y = cy / cw;
+        out.z = cz / cw;
+        return out;
+      }
+    };
+  }
+
+  function remoteActors(player) {
+    const actors = [player];
+    const seen = new Set();
+    for (const entity of game?.entities || []) {
+      if (!entity || entity === game.player || entity.dead || Number(entity.deathTime) > 0) {
+        continue;
+      }
+      if (entity.type !== 'player' && entity.xzDummy !== true) {
+        continue;
+      }
+      if (seen.has(entity)) continue;
+      seen.add(entity);
+      actors.push(actorProxy(entity));
+    }
+    return actors;
+  }
+
+  function ensureGfx() {
+    if (gfx) return gfx;
+    const render = (...args) => game.render(...args);
+    gfx = { camera: cameraProxy(), render };
+    const originalRender = game.render;
+    gfx.render = (...args) => {
+      const player = game?.player;
+      const yaw = player?.yaw;
+      const pitch = player?.pitch;
+      const result = originalRender.apply(game, args);
+
+      if (recoilSuppressors.size && player) {
+        player.yaw = yaw;
+        player.pitch = pitch;
+      }
+
+      return result;
+    };
+    game.render = (...args) => gfx.render(...args);
+    return gfx;
+  }
+
+  function installCameraHook() {
+    const renderer = game?.renderer;
+    if (!renderer || typeof renderer.setCamera !== 'function' || renderer.setCamera.__solsticePotatoCamera) {
+      return;
+    }
+
+    const originalSetCamera = renderer.setCamera;
+    const wrappedSetCamera = function wrappedPotatoSetCamera(position, yaw, pitch, fov, matrixCallback) {
+      if (recoilSuppressors.size && game?.player) {
+        if (Number.isFinite(game.__solsticeAimYaw)) yaw = game.__solsticeAimYaw;
+        if (Number.isFinite(game.__solsticeAimPitch)) pitch = game.__solsticeAimPitch;
+      }
+
+      return originalSetCamera.call(this, position, yaw, pitch, fov, matrixCallback);
+    };
+
+    Object.defineProperty(wrappedSetCamera, '__solsticePotatoCamera', { value: true });
+    renderer.setCamera = wrappedSetCamera;
+  }
+
+  function installGameHooks() {
+    const next = window.game;
+    if (!next || next === hookedGame) return;
+    game = next;
+    hookedGame = next;
+    gfx = null;
+    ensureGfx();
+    installCameraHook();
+  }
+
+  function installRecoilHooks() {
+    for (const xz of [window.XZGUNS, window.XZ]) {
+      if (!xz || typeof xz !== 'object') continue;
+
+      if (typeof xz.kick === 'function' && !xz.kick.__solsticePotatoNoRecoil) {
+        const originalKick = xz.kick;
+        const wrappedKick = function wrappedPotatoKick(...args) {
+          if (recoilSuppressors.size) return undefined;
+          return originalKick.apply(this, args);
+        };
+        Object.defineProperty(wrappedKick, '__solsticePotatoNoRecoil', { value: true });
+        xz.kick = wrappedKick;
+      }
+
+      if (typeof xz.shake === 'function' && !xz.shake.__solsticePotatoNoRecoil) {
+        const originalShake = xz.shake;
+        const wrappedShake = function wrappedPotatoShake(...args) {
+          if (recoilSuppressors.size) return undefined;
+          return originalShake.apply(this, args);
+        };
+        Object.defineProperty(wrappedShake, '__solsticePotatoNoRecoil', { value: true });
+        xz.shake = wrappedShake;
+      }
+
+      if (typeof xz.recoilOf === 'function' && !xz.recoilOf.__solsticePotatoNoRecoil) {
+        const originalRecoil = xz.recoilOf;
+        const wrappedRecoil = function wrappedPotatoRecoil(...args) {
+          if (recoilSuppressors.size) return 0;
+          return originalRecoil.apply(this, args);
+        };
+        Object.defineProperty(wrappedRecoil, '__solsticePotatoNoRecoil', { value: true });
+        xz.recoilOf = wrappedRecoil;
+      }
+
+      if (typeof xz.shakeNow === 'function' && !xz.shakeNow.__solsticePotatoNoRecoil) {
+        const originalShakeNow = xz.shakeNow;
+        const wrappedShakeNow = function wrappedPotatoShakeNow(...args) {
+          if (recoilSuppressors.size) return null;
+          return originalShakeNow.apply(this, args);
+        };
+        Object.defineProperty(wrappedShakeNow, '__solsticePotatoNoRecoil', { value: true });
+        xz.shakeNow = wrappedShakeNow;
+      }
+
+      if (typeof xz.spreadNow === 'function' && !xz.spreadNow.__solsticePotatoNoRecoil) {
+        const originalSpreadNow = xz.spreadNow;
+        const wrappedSpreadNow = function wrappedPotatoSpreadNow(...args) {
+          if (recoilSuppressors.size) return 0;
+          return originalSpreadNow.apply(this, args);
+        };
+        Object.defineProperty(wrappedSpreadNow, '__solsticePotatoNoRecoil', { value: true });
+        xz.spreadNow = wrappedSpreadNow;
+      }
+    }
+  }
+
+  function applyAutoFire() {
+    if (!game?.mouseBtn) return;
+    if (autoFireRequests.size) {
+      game.mouseBtn[0] = true;
+      game.mouseClicked0 = true;
+    } else if (!game.rawMouse?.[0]) {
+      game.mouseBtn[0] = false;
+    }
+  }
+
+  function requestAutoFire(id, enabled) {
+    if (typeof id !== 'string') return;
+    if (enabled) autoFireRequests.add(id);
+    else autoFireRequests.delete(id);
+    applyAutoFire();
+  }
+
+  function setRecoilSuppressed(id, enabled) {
+    if (typeof id !== 'string') return;
+    if (enabled) recoilSuppressors.add(id);
+    else recoilSuppressors.delete(id);
+    installRecoilHooks();
+  }
+
+  function isRecoilSuppressed() {
+    return recoilSuppressors.size > 0;
+  }
+
+  function rayAabb(ox, oy, oz, dx, dy, dz, minX, minY, minZ, maxX, maxY, maxZ, maxDistance) {
+    let near = 0;
+    let far = Number(maxDistance) || Infinity;
+    const origin = [ox, oy, oz];
+    const direction = [dx, dy, dz];
+    const min = [minX, minY, minZ];
+    const max = [maxX, maxY, maxZ];
+
+    for (let axis = 0; axis < 3; axis++) {
+      const o = origin[axis];
+      const d = direction[axis];
+      if (Math.abs(d) < 1e-9) {
+        if (o < min[axis] || o > max[axis]) return null;
+        continue;
+      }
+      let t1 = (min[axis] - o) / d;
+      let t2 = (max[axis] - o) / d;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      if (t1 > near) near = t1;
+      if (t2 < far) far = t2;
+      if (near > far) return null;
+    }
+    return near >= 0 ? near : null;
+  }
+
+  function pollKills() {
+    const stats = window.Potato?.stats?.();
+    const count = Number(stats?.kills);
+    if (!Number.isFinite(count) || count < 0) return;
+    if (lastKillCount === null) {
+      lastKillCount = count;
+      return;
+    }
+    if (count > lastKillCount) {
+      const delta = count - lastKillCount;
+      lastKillCount = count;
+      for (const callback of killCallbacks) {
+        try {
+          callback(delta);
+        } catch {
+
+        }
+      }
+    }
+  }
+
+  function runFrame(now) {
+    const dt = lastFrameAt ? Math.min(0.1, Math.max(0, (now - lastFrameAt) / 1000)) : 1 / 60;
+    lastFrameAt = now;
+    installCameraHook();
+    if (game?.state === 'play' && !game.ui?.screen) {
+      for (const callback of frameCallbacks) {
+        try {
+          callback(dt);
+        } catch {
+
+        }
+      }
+
+      if (game.player) {
+        game.__solsticeAimYaw = game.player.yaw;
+        game.__solsticeAimPitch = game.player.pitch;
+      }
+    }
+    requestAnimationFrame(runFrame);
+  }
+
+  function getGH() {
+    if (!game || !isAlive(game.player)) return null;
+    const player = playerProxy(game.player);
+    return {
+      ready: true,
+      G: { state: game.state === 'play' ? 'playing' : game.state },
+      debug: {
+        gfx: ensureGfx(),
+        player,
+        match: { actors: remoteActors(player) }
+      }
+    };
+  }
+
+  function getContext() {
+    if (!game || !isAlive(game.player)) return null;
+    const player = playerProxy(game.player);
+    return {
+      player,
+      camera: cameraProxy(),
+      input: {
+        mx: 0,
+        my: 0,
+        held(name) {
+          if (name === 'Mouse2') return Boolean(game.mouseBtn?.[2]);
+          if (name === 'Mouse0') return Boolean(game.mouseBtn?.[0]);
+          return Boolean(game.keys?.[name]);
+        }
+      },
+      actors: remoteActors(player)
+    };
+  }
+
+  function onConfig(channel, callback) {
+    if (typeof channel !== 'string' || typeof callback !== 'function') return;
+    let handlers = configHandlers.get(channel);
+    if (!handlers) configHandlers.set(channel, handlers = new Set());
+    handlers.add(callback);
+  }
+
+  function onBeforePlayerUpdate(callback) {
+    if (typeof callback === 'function') frameCallbacks.push(callback);
+    installGameHooks();
+  }
+
+  function onBeforeArsenalUpdate(callback) {
+    if (typeof callback === 'function') frameCallbacks.push(callback);
+    installGameHooks();
+  }
+
+  function onKill(callback) {
+    if (typeof callback === 'function') killCallbacks.push(callback);
+  }
+
+  function isEnemy(actor, player) {
+    return Boolean(actor && player && actor !== player && actor._entity !== game?.player && actor.alive !== false);
+  }
+
+  function headPoint(actor, out = makeVector()) {
+    const entity = actor?._entity;
+    if (!entity) return out.set(0, 0, 0);
+    const aim = entityAimPoint(entity);
+    return out.set(aim.x, aim.y, aim.z);
+  }
+
+  function worldLineClear(origin, end) {
+    if (!game?.raycast) return true;
+    const dx = end.x - origin.x;
+    const dy = end.y - origin.y;
+    const dz = end.z - origin.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < 0.01) return true;
+    try {
+      const hit = game.raycast(
+        [origin.x, origin.y, origin.z],
+        [dx / distance, dy / distance, dz / distance],
+        distance,
+        false,
+        true
+      );
+      return !hit || Number(hit.t) >= distance - 0.1;
+    } catch {
+      return true;
+    }
+  }
+
+  const bridge = {
+    game: 'potatoepic',
+    active: true,
+    onConfig,
+    onBeforePlayerUpdate,
+    onBeforeArsenalUpdate,
+    onKill,
+    requestAutoFire,
+    setRecoilSuppressed,
+    isRecoilSuppressed,
+    rayAabb,
+    getContext,
+    getGH,
+    isEnemy,
+    headPoint,
+    worldLineClear,
+    getFeature() {
+      return null;
+    },
+    clamp(value, min, max) {
+      const number = Number(value);
+      return Math.max(min, Math.min(max, Number.isFinite(number) ? number : min));
+    },
+    wrapAngle(value) {
+      let angle = Number(value) || 0;
+      while (angle > Math.PI) angle -= Math.PI * 2;
+      while (angle < -Math.PI) angle += Math.PI * 2;
+      return angle;
+    }
+  };
+
+  Object.defineProperty(bridge, 'physicalRmb', {
+    get() {
+      return Boolean(game?.mouseBtn?.[2]);
+    }
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.origin !== PARENT_ORIGIN || !event.data || typeof event.data !== 'object') {
+      return;
+    }
+    const data = event.data;
+    const handlers = configHandlers.get(data.channel);
+    if (!handlers) return;
+    for (const callback of handlers) {
+      try {
+        callback(data);
+      } catch {
+
+      }
+    }
+  });
+
+  window.SolsticeGame = bridge;
+  installGameHooks();
+  setInterval(installGameHooks, 250);
+  setInterval(installRecoilHooks, 500);
+  setInterval(pollKills, 100);
+  window.requestAnimationFrame(runFrame);
+})();

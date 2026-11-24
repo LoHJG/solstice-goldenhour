@@ -3,13 +3,14 @@
 (() => {
   'use strict';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
 
   const CHANNEL = 'solstice-combat';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const HEARTBEAT_MS = 500;
 
   let lastSentKey = '';
@@ -17,7 +18,7 @@
 
   function findGameFrame() {
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         return frame;
       }
     }
@@ -58,7 +59,7 @@
 
   register({
     name: 'NoRecoil',
-    desc: 'Removes weapon recoil and camera shake.',
+    desc: 'Removes weapon recoil, spread and camera shake.',
     cat: "Combat",
     nm: { l: 'norecoil', ls: 'no recoil', n: 'NoRecoil', ns: 'No Recoil' },
     disp: '',

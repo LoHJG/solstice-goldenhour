@@ -3,13 +3,14 @@
 (() => {
   'use strict';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
 
   const CHANNEL = 'solstice-combat';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const MIN_SEND_INTERVAL_MS = 100;
   const HEARTBEAT_MS = 500;
 
@@ -19,14 +20,14 @@
 
   function findGameFrame() {
     if (cachedFrame?.isConnected &&
-        cachedFrame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+        cachedFrame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
       return cachedFrame;
     }
 
     cachedFrame = null;
 
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         cachedFrame = frame;
         return frame;
       }
@@ -154,14 +155,21 @@
         }
 
         const height = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
+        const actorBox = Array.isArray(actor.box) && actor.box.length >= 6 ? actor.box : null;
         const x = actor.pos.x;
         const y = actor.pos.y;
         const z = actor.pos.z;
+        const minX = actorBox ? actorBox[0] : x - 0.4;
+        const minY = actorBox ? actorBox[1] : y + 0.05;
+        const minZ = actorBox ? actorBox[2] : z - 0.4;
+        const maxX = actorBox ? actorBox[3] : x + 0.4;
+        const maxY = actorBox ? actorBox[4] : y + height;
+        const maxZ = actorBox ? actorBox[5] : z + 0.4;
         const t = bridge.rayAabb(
           eye.x, eye.y, eye.z,
           forward.x, forward.y, forward.z,
-          x - 0.4, y + 0.05, z - 0.4,
-          x + 0.4, y + height, z + 0.4,
+          minX, minY, minZ,
+          maxX, maxY, maxZ,
           140
         );
 

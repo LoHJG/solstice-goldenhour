@@ -55,6 +55,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'CrouchShot',
     desc: 'Crouches before firing and releases after the shot.',
     cat: 'Combat',

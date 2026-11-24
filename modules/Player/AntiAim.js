@@ -59,6 +59,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'AntiAim',
     desc: 'Jiggles around the back angle or points away from enemies.',
     cat: "Player",

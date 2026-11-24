@@ -173,6 +173,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'CustomServer',
     desc: 'Selects Official, HVH, LocalHost or a custom HTTPS server.',
     cat: 'Misc',

@@ -57,6 +57,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'NoJumpDelay',
     desc: 'Removes the delay between jumps',
     cat: "Movement",

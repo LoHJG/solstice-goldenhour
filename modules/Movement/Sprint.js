@@ -68,6 +68,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'Sprint',
     desc: 'Automatically sprints.',
     cat: "Movement",

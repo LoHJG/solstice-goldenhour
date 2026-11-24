@@ -67,6 +67,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'ThirdPerson',
     desc: 'Renders the local player from a third-person camera.',
     cat: 'Visual',

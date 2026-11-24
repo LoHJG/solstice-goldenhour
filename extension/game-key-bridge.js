@@ -101,6 +101,7 @@
   const features = new Map();
   let latestRawSnapshot = null;
   let latestRawSnapshotAt = 0;
+  let pendingShotSnapshot = null;
 
   function installSnapshotCapture() {
     try {
@@ -133,18 +134,60 @@
       : null;
   }
 
+  function setShotSnapshot(origin, tick) {
+    const x = Number(Array.isArray(origin) ? origin[0] : origin?.x);
+    const y = Number(Array.isArray(origin) ? origin[1] : origin?.y);
+    const z = Number(Array.isArray(origin) ? origin[2] : origin?.z);
+    const shotTick = Number(tick);
+
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) ||
+        !Number.isFinite(shotTick) || shotTick <= 0) {
+      return;
+    }
+
+    pendingShotSnapshot = { origin: [x, y, z], tick: shotTick, at: performance.now() };
+  }
+
+  function peekShotSnapshot() {
+    if (!pendingShotSnapshot) {
+      return null;
+    }
+
+    if (performance.now() - pendingShotSnapshot.at > 120) {
+      pendingShotSnapshot = null;
+      return null;
+    }
+
+    return pendingShotSnapshot;
+  }
+
+  function consumeShotSnapshot() {
+    const pending = peekShotSnapshot();
+    pendingShotSnapshot = null;
+    return pending;
+  }
+
   function installShotTickFix() {
     function rewrite(data) {
       if (!active) return data;
       const snapshot = getRawSnapshot();
-      if (!snapshot || !Number.isFinite(snapshot.tick) || snapshot.tick <= 0) return data;
+      if (!snapshot && !peekShotSnapshot()) return data;
       if (typeof data === 'string') {
         if (!data.includes('"type":"shot"') && !data.includes('"type": "shot"') &&
             !data.includes('"type":"melee"') && !data.includes('"type": "melee"')) return data;
         try {
           const message = JSON.parse(data);
           if (!message || (message.type !== 'shot' && message.type !== 'melee')) return data;
-          message.tick = snapshot.tick;
+          const pending = message.type === 'shot' ? consumeShotSnapshot() : null;
+          const tick = pending?.tick ?? snapshot?.tick;
+          if (!Number.isFinite(tick) || tick <= 0) return data;
+          message.tick = tick;
+
+          if (message.type === 'shot') {
+            const origin = pending?.origin || (snapshot ? rawSelfOrigin(snapshot) : null);
+            if (origin) message.origin = origin;
+          }
+
           return JSON.stringify(message) + (data.endsWith('\n') ? '\n' : '');
         } catch {
           return data;
@@ -159,7 +202,16 @@
           const text = new TextDecoder().decode(bytes);
           const message = JSON.parse(text);
           if (!message || (message.type !== 'shot' && message.type !== 'melee')) return data;
-          message.tick = snapshot.tick;
+          const pending = message.type === 'shot' ? consumeShotSnapshot() : null;
+          const tick = pending?.tick ?? snapshot?.tick;
+          if (!Number.isFinite(tick) || tick <= 0) return data;
+          message.tick = tick;
+
+          if (message.type === 'shot') {
+            const origin = pending?.origin || (snapshot ? rawSelfOrigin(snapshot) : null);
+            if (origin) message.origin = origin;
+          }
+
           return new TextEncoder().encode(JSON.stringify(message) + (text.endsWith('\n') ? '\n' : ''));
         } catch {
           return data;
@@ -547,6 +599,7 @@
     physicalA = false;
     physicalS = false;
     physicalD = false;
+    pendingShotSnapshot = null;
     clearAutoFireRequests();
     runHooks(resetHooks);
   }
@@ -847,6 +900,7 @@
     hasAutoFireRequest,
     getRawSnapshot,
     clearAutoFireRequests,
+    setShotSnapshot,
     setRecoilSuppressed,
     isRecoilSuppressed,
     provide,

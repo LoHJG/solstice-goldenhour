@@ -27,6 +27,7 @@
     ['Mojangles', 700, 'Mojangles-Bold.ttf'],
     ['Tenacity Icons', 400, 'Tenacity-Icons.ttf']
   ];
+  const KEY_CHANNEL = 'solstice-key';
 
   function injectFonts() {
     const host = document.head || document.documentElement;
@@ -72,6 +73,14 @@
 
     if (root && !root.hasAttribute('data-solstice-seven')) {
       root.setAttribute('data-solstice-seven', chrome.runtime.getURL('assets/img/seven_days.png'));
+    }
+  }
+
+  function exposeGameName() {
+    const root = document.documentElement;
+
+    if (root && !root.hasAttribute('data-solstice-game')) {
+      root.setAttribute('data-solstice-game', Protocol.GAME.pathPrefix.includes('/potatoepic/') ? 'potatoepic' : 'goldenhour');
     }
   }
 
@@ -151,7 +160,28 @@
 
     const data = event.data;
 
-    if (!data || data.channel !== Protocol.GAME.channel || typeof data.type !== 'string') {
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    if (data.channel === KEY_CHANNEL) {
+      if (data.type !== 'key' || (data.key !== 'Insert' && data.key !== 'Escape')) {
+        return;
+      }
+
+      const request = new CustomEvent('solstice:key', {
+        detail: {
+          key: data.key,
+          keyCode: Number(data.keyCode) || 0,
+          handled: false
+        }
+      });
+
+      window.dispatchEvent(request);
+      return;
+    }
+
+    if (data.channel !== Protocol.GAME.channel || typeof data.type !== 'string') {
       return;
     }
 
@@ -228,6 +258,8 @@
   scheduleFontInjection();
   exposeAudioBase();
   exposeSevenDays();
+  exposeGameName();
   document.addEventListener('DOMContentLoaded', exposeAudioBase, { once: true });
   document.addEventListener('DOMContentLoaded', exposeSevenDays, { once: true });
+  document.addEventListener('DOMContentLoaded', exposeGameName, { once: true });
 })();

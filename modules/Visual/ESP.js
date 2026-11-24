@@ -3,13 +3,14 @@
 (() => {
   'use strict';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
 
   const CHANNEL = 'solstice-esp';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const MIN_SEND_INTERVAL_MS = 100;
   const HEARTBEAT_MS = 500;
 
@@ -19,14 +20,14 @@
 
   function findGameFrame() {
     if (cachedFrame?.isConnected &&
-        cachedFrame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+        cachedFrame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
       return cachedFrame;
     }
 
     cachedFrame = null;
 
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         cachedFrame = frame;
         return frame;
       }
@@ -120,6 +121,7 @@
 
   function installGame(bridge) {
     const BOX_HALF_WIDTH = 0.35;
+    const potato = bridge.game === 'potatoepic';
     let config = {
       enabled: false,
       filled: true,
@@ -308,15 +310,16 @@
         }
 
         const actorHeight = Number(actor.e?.h) > 0.2 ? Number(actor.e.h) : 1.8;
+        const actorBox = Array.isArray(actor.box) && actor.box.length >= 6 ? actor.box : null;
         const x = actor.pos.x;
         const y = actor.pos.y;
         const z = actor.pos.z;
-        const minX = x - BOX_HALF_WIDTH;
-        const maxX = x + BOX_HALF_WIDTH;
-        const minZ = z - BOX_HALF_WIDTH;
-        const maxZ = z + BOX_HALF_WIDTH;
-        const minY = y + 0.01;
-        const maxY = y + actorHeight + 0.02;
+        const minX = actorBox ? actorBox[0] : x - BOX_HALF_WIDTH;
+        const maxX = actorBox ? actorBox[3] : x + BOX_HALF_WIDTH;
+        const minZ = actorBox ? actorBox[2] : z - BOX_HALF_WIDTH;
+        const maxZ = actorBox ? actorBox[5] : z + BOX_HALF_WIDTH;
+        const minY = actorBox ? actorBox[1] : y + 0.01;
+        const maxY = actorBox ? actorBox[4] : y + actorHeight + 0.02;
         corners[0][0] = minX; corners[0][1] = minY; corners[0][2] = minZ;
         corners[1][0] = minX; corners[1][1] = minY; corners[1][2] = maxZ;
         corners[2][0] = minX; corners[2][1] = maxY; corners[2][2] = minZ;
@@ -388,6 +391,10 @@
     }
 
     function installRenderHook() {
+      if (potato) {
+        return;
+      }
+
       const gfx = bridge.getGH()?.debug?.gfx;
 
       if (!gfx || typeof gfx.render !== 'function' || gfx.render.__solsticeEspWrapped) {
@@ -415,7 +422,7 @@
     function fallbackDrawLoop() {
       window.requestAnimationFrame(fallbackDrawLoop);
 
-      if (!renderHookInstalled) {
+      if (potato || !renderHookInstalled) {
         try {
           draw();
         } catch {

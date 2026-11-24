@@ -71,6 +71,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'BulletTracers',
     desc: 'Draws glowing bullet tracers from your head to the impact point.',
     cat: 'Visual',

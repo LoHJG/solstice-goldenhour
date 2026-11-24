@@ -64,6 +64,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'AutoDodge',
     desc: 'Dodges when an enemy aims at your hitbox.',
     cat: 'Misc',

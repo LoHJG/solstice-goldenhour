@@ -84,6 +84,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'Aura',
     desc: 'Automatically attacks nearby enemies.',
     cat: "Combat",
@@ -568,7 +569,9 @@
 
       const camera = bridge.getGH()?.debug?.gfx?.camera;
       const thirdPerson = bridge.getFeature('thirdperson');
-      const origin = rawSelfEye() || thirdPerson?.getEye?.() || eye || camera?.position;
+      const rawOrigin = rawSelfEye();
+      const shotTick = Number(currentSnapshot()?.tick) || 0;
+      const origin = rawOrigin || thirdPerson?.getEye?.() || eye || camera?.position;
 
       if (!origin) {
         bridge.requestAutoFire('aura', false);
@@ -602,6 +605,7 @@
       out.x = dx / length;
       out.y = dy / length;
       out.z = dz / length;
+      if (shotTick > 0) bridge.setShotSnapshot?.(rawOrigin || origin, shotTick);
       return out;
     }
 

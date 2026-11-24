@@ -42,6 +42,7 @@
   }
 
   register({
+  game: "goldenhour",
     name: 'UIDSpoof',
     desc: 'Sends a random online UID while enabled',
     cat: 'Misc',
