@@ -3,12 +3,13 @@
 (() => {
   'use strict';
 
+  const CHANNEL = 'solstice-combat';
+
   if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
 
-  const CHANNEL = 'solstice-combat';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const potato = window.SolsticeGameId === 'potatoepic' || location.pathname.includes('/potatoepic/');
@@ -803,8 +804,8 @@
   }
 
   function installPotatoAura(bridge) {
+    let enabled = false;
     let config = {
-      enabled: false,
       mode: 'Switch',
       range: 20,
       attackThroughWalls: true
@@ -814,16 +815,29 @@
     let aimScratch = null;
     let renderAim = null;
     let aimPoint = null;
-    let autoFireActive = false;
-    let tickAim = false;
-    let pendingRestore = null;
-    let tickHookInstalled = false;
-    let playerTickHook = null;
-    let traceHookInstalled = false;
-    let renderFireHookInstalled = false;
+    let aimYaw = null;
+    let aimPitch = null;
+    let aimStamp = 0;
+    let originalGetBlock = null;
+    let propsPlayer = null;
+    let fireHooksInstalled = false;
+    let triggerHookInstalled = false;
     let renderHookInstalled = false;
 
     function playerOrigin(player) {
+      try {
+        const actual = window.game?.player;
+        const eye = typeof window.XZ?.eyeOf === 'function'
+          ? window.XZ.eyeOf(actual || player)
+          : null;
+
+        if (eye && eye.every(Number.isFinite)) {
+          return { x: eye[0], y: eye[1], z: eye[2] };
+        }
+      } catch {
+
+      }
+
       const pos = player?.pos;
       const height = Math.max(0.2, Number(player?.e?.h) || 1.8);
 
@@ -893,16 +907,188 @@
       };
     }
 
-    function wrapAngle(value) {
-      while (value > Math.PI) {
-        value -= Math.PI * 2;
+    function clearFireAim() {
+      aimYaw = null;
+      aimPitch = null;
+
+      if (originalGetBlock) {
+        try {
+          window.game.world.getBlock = originalGetBlock;
+        } catch {
+
+        }
+
+        originalGetBlock = null;
+      }
+    }
+
+    function installProps(player) {
+      if (propsPlayer === player || !player || Object.getOwnPropertyDescriptor(player, 'yaw')?.get) {
+        return;
       }
 
-      while (value < -Math.PI) {
-        value += Math.PI * 2;
+      const yawDescriptor = Object.getOwnPropertyDescriptor(player, 'yaw');
+      const pitchDescriptor = Object.getOwnPropertyDescriptor(player, 'pitch');
+
+      if ((yawDescriptor && !yawDescriptor.configurable) || (pitchDescriptor && !pitchDescriptor.configurable)) {
+        return;
       }
 
-      return value;
+      let actualYaw = Number(player.yaw) || 0;
+      let actualPitch = Number(player.pitch) || 0;
+
+      try {
+        Object.defineProperty(player, 'yaw', {
+          configurable: true,
+          enumerable: yawDescriptor?.enumerable ?? true,
+          get() {
+            return aimYaw === null ? actualYaw : aimYaw;
+          },
+          set(value) {
+            actualYaw = Number(value) || 0;
+          }
+        });
+
+        Object.defineProperty(player, 'pitch', {
+          configurable: true,
+          enumerable: pitchDescriptor?.enumerable ?? true,
+          get() {
+            return aimPitch === null ? actualPitch : aimPitch;
+          },
+          set(value) {
+            actualPitch = Number(value) || 0;
+          }
+        });
+
+        propsPlayer = player;
+      } catch {
+
+      }
+    }
+
+    function beginFireAim() {
+      if (!renderAim || !aimPoint) {
+        return;
+      }
+
+      if (config.attackThroughWalls && !originalGetBlock && window.game?.world?.getBlock) {
+        originalGetBlock = window.game.world.getBlock;
+
+        try {
+          window.game.world.getBlock = function auraGetBlock() {
+            return 0;
+          };
+        } catch {
+          originalGetBlock = null;
+        }
+      }
+
+      aimYaw = renderAim.yaw;
+      aimPitch = renderAim.pitch;
+      const stamp = ++aimStamp;
+
+      queueMicrotask(() => {
+        if (stamp === aimStamp) {
+          clearFireAim();
+        }
+      });
+    }
+
+    function installTriggerHook(game) {
+      if (triggerHookInstalled || !game || typeof game.handleInteraction !== 'function') {
+        return;
+      }
+
+      triggerHookInstalled = true;
+      const originalInteraction = game.handleInteraction;
+
+      game.handleInteraction = function auraInteraction(...args) {
+        const result = originalInteraction.apply(this, args);
+        const xz = window.XZ;
+
+        if (
+          enabled &&
+          target &&
+          aimPoint &&
+          renderAim &&
+          this.player &&
+          typeof xz?.trigger === 'function'
+        ) {
+          try {
+            xz.trigger(this, true);
+          } catch {
+
+          }
+        }
+
+        return result;
+      };
+    }
+
+    function installFireHooks(xz) {
+      if (fireHooksInstalled || !xz) {
+        return;
+      }
+
+      fireHooksInstalled = true;
+
+      if (typeof xz.sound === 'function' && !xz.sound.__solsticeAuraFire) {
+        const originalSound = xz.sound;
+        const wrappedSound = function auraFireSound(name, pos, ...args) {
+          if (
+            enabled &&
+            target &&
+            aimPoint &&
+            renderAim &&
+            /^fire_/.test(String(name)) &&
+            Array.isArray(pos) &&
+            window.game?.player?.pos
+          ) {
+            const player = window.game.player;
+            const dx = pos[0] - player.pos[0];
+            const dy = pos[1] - player.pos[1];
+            const dz = pos[2] - player.pos[2];
+
+            if (dx * dx + dy * dy + dz * dz < 9) {
+              beginFireAim();
+            }
+          }
+
+          return originalSound.call(this, name, pos, ...args);
+        };
+
+        Object.defineProperty(wrappedSound, '__solsticeAuraFire', { value: true });
+        xz.sound = wrappedSound;
+      }
+
+      if (typeof xz.spreadNow === 'function' && !xz.spreadNow.__solsticeAuraSpread) {
+        const originalSpread = xz.spreadNow;
+        const wrappedSpread = function auraSpread(...args) {
+          if (enabled && target && aimPoint && aimYaw !== null) {
+            return 0;
+          }
+
+          return originalSpread.apply(this, args);
+        };
+
+        Object.defineProperty(wrappedSpread, '__solsticeAuraSpread', { value: true });
+        xz.spreadNow = wrappedSpread;
+      }
+
+      const originalFired = xz.onFired;
+      const wrappedFired = function auraFired(game, player, ...args) {
+        try {
+          return originalFired?.apply(this, arguments);
+        } finally {
+          if (player === game?.player) {
+            clearFireAim();
+            setFireHeld(false);
+          }
+        }
+      };
+
+      Object.defineProperty(wrappedFired, '__solsticeAuraFired', { value: true });
+      xz.onFired = wrappedFired;
     }
 
     function installRenderHook(game) {
@@ -933,154 +1119,21 @@
       };
     }
 
-    function installPlayerTickHook(player) {
-      if (!player || typeof player.tick !== 'function' || player.tick.__solsticeAuraTick) {
-        return;
-      }
-
-      const originalTick = player.tick;
-      const wrappedTick = function auraPlayerTick(input) {
-        const result = originalTick.call(this, input);
-
-        if (tickAim && !pendingRestore && renderAim) {
-          pendingRestore = {
-            player: this,
-            yaw: this.yaw,
-            pitch: this.pitch
-          };
-          this.yaw = renderAim.yaw;
-          this.pitch = renderAim.pitch;
-        }
-
-        return result;
-      };
-
-      Object.defineProperty(wrappedTick, '__solsticeAuraTick', { value: true });
-      player.tick = wrappedTick;
-      playerTickHook = wrappedTick;
-    }
-
-    function installRenderFireHook(game) {
-      if (renderFireHookInstalled || !game || typeof game.render !== 'function') {
-        return;
-      }
-
-      renderFireHookInstalled = true;
-      const originalRender = game.render;
-
-      game.render = function auraRender(...args) {
-        const xz = window.XZ;
-        const player = this.player;
-        const state = typeof xz?.state === 'function' ? xz.state(player) : null;
-        const suppress = Boolean(
-          config.enabled &&
-          aimPoint &&
-          renderAim &&
-          autoFireActive &&
-          !this.rawMouse?.[0]
-        );
-        let trig = false;
-        let mouse = false;
-        let click = false;
-
-        if (suppress && state) {
-          trig = state.trig;
-          mouse = this.mouseBtn?.[0];
-          click = this.mouseClicked0;
-          state.trig = false;
-
-          if (this.mouseBtn) {
-            this.mouseBtn[0] = false;
-          }
-
-          this.mouseClicked0 = false;
-        }
-
-        try {
-          return originalRender.apply(this, args);
-        } finally {
-          if (suppress && state) {
-            state.trig = trig;
-
-            if (this.mouseBtn) {
-              this.mouseBtn[0] = mouse;
-            }
-
-            this.mouseClicked0 = click;
-          }
-        }
-      };
-    }
-
-    function installTickHook(game) {
-      if (tickHookInstalled || !game || typeof game.tick !== 'function') {
-        return;
-      }
-
-      tickHookInstalled = true;
-      const originalTick = game.tick;
-
-      game.tick = function auraGameTick(...args) {
-        const player = this.player;
-        tickAim = Boolean(
-          config.enabled &&
-          aimPoint &&
-          renderAim &&
-          player &&
-          this.state === 'play' &&
-          autoFireActive
-        );
-
-        if (tickAim) {
-          installPlayerTickHook(player);
-        }
-
-        try {
-          return originalTick.apply(this, args);
-        } finally {
-          if (pendingRestore) {
-            pendingRestore.player.yaw = pendingRestore.yaw;
-            pendingRestore.player.pitch = pendingRestore.pitch;
-            pendingRestore = null;
-          }
-
-          tickAim = false;
-        }
-      };
-    }
-
-    function installTraceHook() {
+    function setFireHeld(wanted) {
       const xz = window.XZ;
 
-      if (!xz || typeof xz.trace !== 'function' || xz.trace.__solsticeAuraTrace) {
+      if (!xz || typeof xz.trigger !== 'function') {
         return;
       }
 
-      const originalTrace = xz.trace;
-      const wrappedTrace = function auraTrace(game, player, origin, direction, ...args) {
-        if (config.enabled && target && aimPoint && player === game?.player) {
-          const ox = Array.isArray(origin) ? origin[0] : origin?.x;
-          const oy = Array.isArray(origin) ? origin[1] : origin?.y;
-          const oz = Array.isArray(origin) ? origin[2] : origin?.z;
-          const dx = aimPoint.x - (Number(ox) || 0);
-          const dy = aimPoint.y - (Number(oy) || 0);
-          const dz = aimPoint.z - (Number(oz) || 0);
-          const length = Math.hypot(dx, dy, dz);
+      try {
+        xz.trigger(window.game, wanted);
+      } catch {
 
-          if (length > 1e-5) {
-            direction = [dx / length, dy / length, dz / length];
-          }
-        }
-
-        return originalTrace.call(this, game, player, origin, direction, ...args);
-      };
-
-      Object.defineProperty(wrappedTrace, '__solsticeAuraTrace', { value: true });
-      xz.trace = wrappedTrace;
-      traceHookInstalled = true;
+      }
     }
 
-    bridge.onConfig('solstice-combat', (data) => {
+    bridge.onConfig(CHANNEL, (data) => {
       if (data.type !== 'config' || data.module !== 'aura') {
         return;
       }
@@ -1088,30 +1141,29 @@
       const range = Number(data.range);
 
       config = {
-        enabled: Boolean(data.enabled),
         mode: data.mode === 'Single' ? 'Single' : 'Switch',
         range: Number.isFinite(range) ? bridge.clamp(range, 0, 120) : 20,
         attackThroughWalls: data.attackThroughWalls !== false
       };
+      enabled = Boolean(data.enabled);
 
-      if (!config.enabled) {
+      if (!enabled) {
         target = null;
         singleTarget = null;
         renderAim = null;
         aimPoint = null;
-        autoFireActive = false;
-        bridge.requestAutoFire('aura', false);
+        clearFireAim();
+        setFireHeld(false);
       }
     });
 
     bridge.onBeforePlayerUpdate(() => {
-      if (!config.enabled) {
+      if (!enabled) {
         target = null;
         singleTarget = null;
         renderAim = null;
         aimPoint = null;
-        autoFireActive = false;
-        bridge.requestAutoFire('aura', false);
+        setFireHeld(false);
         return;
       }
 
@@ -1122,8 +1174,7 @@
         singleTarget = null;
         renderAim = null;
         aimPoint = null;
-        autoFireActive = false;
-        bridge.requestAutoFire('aura', false);
+        setFireHeld(false);
         return;
       }
 
@@ -1134,8 +1185,7 @@
         target = null;
         renderAim = null;
         aimPoint = null;
-        autoFireActive = false;
-        bridge.requestAutoFire('aura', false);
+        setFireHeld(false);
 
         if (config.mode === 'Single') {
           singleTarget = null;
@@ -1158,11 +1208,9 @@
         at: performance.now()
       };
       installRenderHook(window.game);
-      installTickHook(window.game);
-      installRenderFireHook(window.game);
-      installTraceHook();
-      autoFireActive = true;
-      bridge.requestAutoFire('aura', true);
+      installProps(window.game?.player);
+      installTriggerHook(window.game);
+      installFireHooks(window.XZ);
     });
   }
 })();
