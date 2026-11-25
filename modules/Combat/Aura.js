@@ -945,7 +945,8 @@
         !player ||
         state?.rel ||
         game.ui?.screen ||
-        game.mode === 'spectator'
+        game.mode === 'spectator' ||
+        (typeof xz.noFire === 'function' && xz.noFire(game))
       ) {
         return false;
       }
