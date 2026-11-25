@@ -306,6 +306,14 @@
       return { nickname: '', avatar: '' };
     }
 
+    function clearBanState() {
+      try {
+        localStorage.removeItem('potato:ban');
+      } catch {
+
+      }
+    }
+
     function installHook() {
       const toy = getToy();
 
@@ -377,6 +385,7 @@
       const originalLoginBili = Account.loginBili;
       const wrappedLoginBili = async function wrappedPotatoUidLoginBili(...args) {
         if (enabled) {
+          clearBanState();
           freshIdentity();
         }
 
@@ -397,6 +406,7 @@
 
       if (!wasEnabled && enabled) {
         freshIdentity();
+        clearBanState();
         installHook();
         installLoginBypass();
       }

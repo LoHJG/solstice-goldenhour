@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Solstice",
   "short_name": "Solstice",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Solstice utilities for GOLDEN HOUR and Potato Epic.",
   "minimum_chrome_version": "111",
   "icons": {
@@ -138,10 +138,13 @@
         "modules/Combat/NoRecoil.js",
         "modules/Misc/KillSound.js",
         "modules/Combat/Aura.js",
+        "modules/Combat/InfAmmo.js",
+        "modules/Combat/FastShot.js",
         "modules/Misc/UIDSpoof.js",
         "modules/Misc/UnLock.js",
         "modules/Movement/Speed.js",
         "modules/Movement/FastStop.js",
+        "modules/Player/GodMode.js",
         "js/main.js",
         "js/commands.js",
         "extension/page.js"
@@ -172,10 +175,13 @@
         "modules/Combat/NoRecoil.js",
         "modules/Misc/KillSound.js",
         "modules/Combat/Aura.js",
+        "modules/Combat/InfAmmo.js",
+        "modules/Combat/FastShot.js",
         "modules/Misc/UIDSpoof.js",
         "modules/Misc/UnLock.js",
         "modules/Movement/Speed.js",
-        "modules/Movement/FastStop.js"
+        "modules/Movement/FastStop.js",
+        "modules/Player/GodMode.js"
       ],
       "run_at": "document_start",
       "all_frames": true,

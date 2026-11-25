@@ -819,6 +819,17 @@
     let lastShotAt = 0;
     let renderHookInstalled = false;
 
+    function playerOrigin(player) {
+      const pos = player?.pos;
+      const height = Math.max(0.2, Number(player?.e?.h) || 1.8);
+
+      return {
+        x: Number(pos?.[0] ?? pos?.x) || 0,
+        y: (Number(pos?.[1] ?? pos?.y) || 0) + height * 0.9,
+        z: Number(pos?.[2] ?? pos?.z) || 0
+      };
+    }
+
     function validTarget(context, actor, eye) {
       if (!actor || actor.alive === false || !bridge.isEnemy(actor, context.player)) {
         return null;
@@ -844,7 +855,7 @@
     }
 
     function selectTarget(context) {
-      const eye = context.camera.position;
+      const eye = playerOrigin(context.player);
 
       if (config.mode === 'Single' && target) {
         const current = validTarget(context, target, eye);
@@ -1132,7 +1143,7 @@
         return;
       }
 
-      const eye = context.camera.position;
+      const eye = playerOrigin(context.player);
       const selected = selectTarget(context);
 
       if (!selected) {
