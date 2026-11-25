@@ -2,6 +2,7 @@
   'use strict';
 
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const potato = window.SolsticeGameId === 'potatoepic' || location.pathname.includes('/potatoepic/');
   const CONFIG_KEY = 'solstice.configs';
   const DEFAULT_KEY = 'solstice.config.default';
   const BIND_KEY = 'solstice.binds';
@@ -25,13 +26,16 @@
       description: 'Manage configurations',
       usage: 'config <load/save/list/delete/default> [name]'
     },
-    {
+  ];
+
+  if (!potato) {
+    COMMANDS.push({
       name: 'server',
       aliases: ['srv'],
       description: 'Sets the CustomServer address and selects Custom mode',
       usage: 'server ip:port'
-    }
-  ];
+    });
+  }
   const NAMED_KEYS = {
     space: 'Space',
     shift: 'ShiftLeft',
@@ -711,7 +715,8 @@
   function isGameSource(source) {
     for (const frame of document.querySelectorAll('iframe')) {
       if (
-        frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`) &&
+        (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`) ||
+          frame.src.startsWith(`${GAME_ORIGIN}/toy/potatoepic/`)) &&
         frame.contentWindow === source
       ) {
         return true;
@@ -745,8 +750,8 @@
 
     const data = event.data;
 
-    if (data?.channel === 'solstice-key' && data.type === 'down') {
-      triggerBound(normalizeCode(data.code || data.key));
+    if (data?.channel === 'solstice-key' && (data.type === 'down' || data.type === 'key')) {
+      triggerBound(normalizeCode(data.code || data.keyCode || data.key));
     }
   });
 
@@ -762,11 +767,14 @@
     help: commandHelp,
     bind: commandBind,
     config: commandConfig,
-    server: commandServer,
     execute,
     saveModuleBind,
     commands: COMMANDS.map((command) => command.name)
   };
+
+  if (!potato) {
+    window.Solstice.server = commandServer;
+  }
   window.sol = execute;
 
   if (typeof window.help === 'undefined') {
@@ -781,14 +789,16 @@
     window.config = commandConfig;
   }
 
-  if (typeof window.server === 'undefined') {
+  if (!potato && typeof window.server === 'undefined') {
     window.server = commandServer;
   }
 
   if (!window.__solsticeConsoleHint) {
     window.__solsticeConsoleHint = true;
     console.log(
-      '%c[Solstice]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main") | sol("server ip:port")',
+      potato
+        ? '%c[Solstice]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main")'
+        : '%c[Solstice]%c Console commands: sol("help") | sol("bind Aura R") | sol("config save main") | sol("server ip:port")',
       'color:#ff5fa2;font-weight:bold',
       'color:inherit'
     );

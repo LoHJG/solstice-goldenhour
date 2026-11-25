@@ -3,13 +3,15 @@
 (() => {
   'use strict';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
 
   const CHANNEL = 'solstice-combat';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
+  const potato = window.SolsticeGameId === 'potatoepic' || location.pathname.includes('/potatoepic/');
   const MIN_SEND_INTERVAL_MS = 100;
   const HEARTBEAT_MS = 500;
 
@@ -19,14 +21,14 @@
 
   function findGameFrame() {
     if (cachedFrame?.isConnected &&
-        cachedFrame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+        cachedFrame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
       return cachedFrame;
     }
 
     cachedFrame = null;
 
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         cachedFrame = frame;
         return frame;
       }
@@ -62,10 +64,15 @@
       module: 'aura',
       enabled: Boolean(module.on),
       mode,
-      range,
-      wallCheck: Boolean(setting(module, 'Wall Check', true)),
-      ads: Boolean(setting(module, 'ADS', false))
+      range
     };
+
+    if (potato) {
+      config.attackThroughWalls = Boolean(setting(module, 'Attack through walls', true));
+    } else {
+      config.wallCheck = Boolean(setting(module, 'Wall Check', true));
+      config.ads = Boolean(setting(module, 'ADS', false));
+    }
     const key = JSON.stringify(config);
 
     if (key === lastSentKey && now - lastSentAt < HEARTBEAT_MS) {
@@ -83,30 +90,34 @@
     lastSentAt = now;
   }
 
-  register({
-  game: "goldenhour",
-    name: 'Aura',
-    desc: 'Automatically attacks nearby enemies.',
-    cat: "Combat",
-    nm: { l: 'aura', ls: 'aura', n: 'Aura', ns: 'Aura' },
-    disp: 'Mode',
-    settings: [
-      {
-        t: 'e',
-        n: 'Mode',
-        d: 'Switch cycles between targets; Single stays on one target until it is lost.',
-        v: 0,
-        vals: ['Switch', 'Single']
-      },
-      {
-        t: 'n',
-        n: 'Range',
-        d: 'The range at which to attack enemies.',
-        v: 20,
-        min: 0,
-        max: 120,
-        step: 0.5
-      },
+  const settings = [
+    {
+      t: 'e',
+      n: 'Mode',
+      d: 'Switch cycles between targets; Single stays on one target until it is lost.',
+      v: 0,
+      vals: ['Switch', 'Single']
+    },
+    {
+      t: 'n',
+      n: 'Range',
+      d: 'The range at which to attack enemies.',
+      v: 20,
+      min: 0,
+      max: 120,
+      step: 0.5
+    }
+  ];
+
+  if (potato) {
+    settings.push({
+      t: 'b',
+      n: 'Attack through walls',
+      d: 'Whether or not to attack through walls',
+      v: 1
+    });
+  } else {
+    settings.push(
       {
         t: 'b',
         n: 'Wall Check',
@@ -119,7 +130,16 @@
         d: 'Silently request ADS on the server while attacking.',
         v: 0
       }
-    ],
+    );
+  }
+
+  register({
+    name: 'Aura',
+    desc: 'Automatically attacks nearby enemies.',
+    cat: "Combat",
+    nm: { l: 'aura', ls: 'aura', n: 'Aura', ns: 'Aura' },
+    disp: 'Mode',
+    settings,
     onRender: syncConfig,
     onEnable() {}
   });
@@ -145,6 +165,11 @@
   }
 
   function installGame(bridge) {
+    if (bridge.game === 'potatoepic') {
+      installPotatoAura(bridge);
+      return;
+    }
+
     let config = {
       enabled: false,
       mode: 'Switch',
@@ -775,5 +800,369 @@
 
     installSprintLock();
     setInterval(installSprintLock, 500);
+  }
+
+  function installPotatoAura(bridge) {
+    let config = {
+      enabled: false,
+      mode: 'Switch',
+      range: 20,
+      attackThroughWalls: true
+    };
+    let target = null;
+    let singleTarget = null;
+    let aimScratch = null;
+    let renderAim = null;
+    let smoothYaw = null;
+    let smoothPitch = null;
+    let smoothAt = 0;
+    let lastShotAt = 0;
+    let renderHookInstalled = false;
+
+    function validTarget(context, actor, eye) {
+      if (!actor || actor.alive === false || !bridge.isEnemy(actor, context.player)) {
+        return null;
+      }
+
+      const point = aimScratch || (aimScratch = context.player.pos.clone());
+      bridge.headPoint(actor, point);
+
+      const dx = point.x - eye.x;
+      const dy = point.y - eye.y;
+      const dz = point.z - eye.z;
+      const distance = Math.hypot(dx, dy, dz);
+
+      if (distance > config.range) {
+        return null;
+      }
+
+      if (!config.attackThroughWalls && !bridge.worldLineClear(eye, point)) {
+        return null;
+      }
+
+      return { actor, point: { x: point.x, y: point.y, z: point.z }, distance };
+    }
+
+    function selectTarget(context) {
+      const eye = context.camera.position;
+
+      if (config.mode === 'Single' && target) {
+        const current = validTarget(context, target, eye);
+
+        if (current) {
+          return current;
+        }
+      }
+
+      let best = null;
+
+      for (const actor of context.actors) {
+        const candidate = validTarget(context, actor, eye);
+
+        if (candidate && (!best || candidate.distance < best.distance)) {
+          best = candidate;
+        }
+      }
+
+      return best;
+    }
+
+    function targetAngles(eye, point) {
+      const dx = point.x - eye.x;
+      const dy = point.y - eye.y;
+      const dz = point.z - eye.z;
+
+      return {
+        yaw: Math.atan2(-dx, -dz),
+        pitch: Math.max(-1.5, Math.min(1.5, Math.atan2(dy, Math.hypot(dx, dz))))
+      };
+    }
+
+    function wrapAngle(value) {
+      while (value > Math.PI) {
+        value -= Math.PI * 2;
+      }
+
+      while (value < -Math.PI) {
+        value += Math.PI * 2;
+      }
+
+      return value;
+    }
+
+    function installRenderHook(game) {
+      if (renderHookInstalled || !game || typeof game.drawMob !== 'function') {
+        return;
+      }
+
+      renderHookInstalled = true;
+      const originalDrawMob = game.drawMob;
+
+      game.drawMob = function drawMobAura(entity, ...args) {
+        if (entity !== this.player || !renderAim) {
+          return originalDrawMob.call(this, entity, ...args);
+        }
+
+        const now = performance.now();
+
+        if (now - smoothAt > 8) {
+          if (smoothYaw === null || smoothPitch === null) {
+            smoothYaw = Number(this.player.yaw) || 0;
+            smoothPitch = Number(this.player.pitch) || 0;
+          }
+
+          const dt = smoothAt ? Math.min(0.05, Math.max(0.001, (now - smoothAt) / 1000)) : 1 / 60;
+          smoothAt = now;
+          const k = 1 - Math.exp(-dt * 18);
+          smoothYaw += wrapAngle(renderAim.yaw - smoothYaw) * k;
+          smoothPitch += (renderAim.pitch - smoothPitch) * k;
+        }
+
+        const yaw = this.player.yaw;
+        const pitch = this.player.pitch;
+
+        this.player.yaw = smoothYaw ?? renderAim.yaw;
+        this.player.pitch = smoothPitch ?? renderAim.pitch;
+
+        try {
+          return originalDrawMob.call(this, entity, ...args);
+        } finally {
+          this.player.yaw = yaw;
+          this.player.pitch = pitch;
+        }
+      };
+    }
+
+    function fireGun(game, actor, point, eye) {
+      const xz = window.XZ;
+      const player = game.player;
+      const held = player?.inv?.held;
+      const state = typeof xz?.state === 'function' ? xz.state(player) : null;
+
+      if (
+        !xz ||
+        typeof xz.trace !== 'function' ||
+        !player ||
+        state?.rel ||
+        game.ui?.screen ||
+        game.mode === 'spectator'
+      ) {
+        return false;
+      }
+
+      const gun = typeof xz.gun === 'function' ? xz.gun(held) : null;
+
+      if (!gun) {
+        return false;
+      }
+
+      const rounds = typeof xz.rounds === 'function' ? xz.rounds(held) : 0;
+
+      if (rounds <= 0) {
+        try {
+          xz.startReload?.(game);
+        } catch {
+
+        }
+
+        return false;
+      }
+
+      const now = performance.now();
+      const rate = Math.max(0.1, Number(gun.rate) || 1);
+
+      if (now - lastShotAt < 1000 / rate) {
+        return false;
+      }
+
+      lastShotAt = now;
+
+      const origin = typeof xz.eyeOf === 'function' ? xz.eyeOf(player) : [eye.x, eye.y, eye.z];
+      const angles = targetAngles({ x: origin[0], y: origin[1], z: origin[2] }, point);
+      const direction = xz.dirOf(angles.yaw, angles.pitch);
+      const world = game.world;
+      let originalGetBlock = null;
+
+      renderAim = {
+        yaw: angles.yaw,
+        pitch: angles.pitch,
+        at: now
+      };
+      installRenderHook(game);
+
+      if (config.attackThroughWalls && world?.getBlock && !bridge.worldLineClear(eye, point)) {
+        originalGetBlock = world.getBlock;
+        world.getBlock = function getBlockAura() {
+          return 0;
+        };
+      }
+
+      let distance = 0;
+
+      try {
+        distance = xz.trace(
+          game,
+          player,
+          origin,
+          direction,
+          gun.pen,
+          gun.dmg,
+          gun.range || 200,
+          held
+        );
+
+        if (typeof xz.setRounds === 'function') {
+          xz.setRounds(held, Math.max(0, rounds - 1));
+        }
+
+        try {
+          xz.anim?.(player, held, 'fire');
+        } catch {
+
+        }
+
+        try {
+          const key = typeof xz.key === 'function' ? xz.key(held) : '';
+          const sound = 'fire_' + key;
+
+          if (xz.R?.sounds?.[sound]) {
+            xz.sound?.(sound, player.pos, gun.auto ? 0.8 : 1);
+          }
+        } catch {
+
+        }
+
+        const end = [
+          origin[0] + direction[0] * (Number(distance) || 0),
+          origin[1] + direction[1] * (Number(distance) || 0),
+          origin[2] + direction[2] * (Number(distance) || 0)
+        ];
+        const muzzle = [
+          origin[0] + direction[0] * 0.7,
+          origin[1] + direction[1] * 0.7,
+          origin[2] + direction[2] * 0.7
+        ];
+
+        try {
+          xz.tracer?.(game, muzzle, end);
+          xz.flash?.(game, muzzle, direction);
+        } catch {
+
+        }
+
+        try {
+          xz.onFired?.(game, player, held);
+        } catch {
+
+        }
+
+        if (rounds - 1 <= 0) {
+          try {
+            xz.startReload?.(game);
+          } catch {
+
+          }
+        }
+
+        return true;
+      } catch {
+        return false;
+      } finally {
+        if (originalGetBlock) {
+          world.getBlock = originalGetBlock;
+        }
+      }
+    }
+
+    function attack(actor, point, eye) {
+      const game = window.game;
+
+      if (!game || actor.alive === false || game.net || game.p2pGuest) {
+        return false;
+      }
+
+      return fireGun(game, actor, point, eye);
+    }
+
+    bridge.onConfig('solstice-combat', (data) => {
+      if (data.type !== 'config' || data.module !== 'aura') {
+        return;
+      }
+
+      const range = Number(data.range);
+
+      config = {
+        enabled: Boolean(data.enabled),
+        mode: data.mode === 'Single' ? 'Single' : 'Switch',
+        range: Number.isFinite(range) ? bridge.clamp(range, 0, 120) : 20,
+        attackThroughWalls: data.attackThroughWalls !== false
+      };
+
+      if (!config.enabled) {
+        target = null;
+        singleTarget = null;
+        renderAim = null;
+        smoothYaw = null;
+        smoothPitch = null;
+        smoothAt = 0;
+      }
+    });
+
+    bridge.onBeforePlayerUpdate(() => {
+      if (!config.enabled) {
+        target = null;
+        singleTarget = null;
+        renderAim = null;
+        smoothYaw = null;
+        smoothPitch = null;
+        smoothAt = 0;
+        return;
+      }
+
+      const context = bridge.getContext();
+
+      if (!context) {
+        target = null;
+        singleTarget = null;
+        renderAim = null;
+        smoothYaw = null;
+        smoothPitch = null;
+        smoothAt = 0;
+        return;
+      }
+
+      const eye = context.camera.position;
+      const selected = selectTarget(context);
+
+      if (!selected) {
+        target = null;
+        renderAim = null;
+        smoothYaw = null;
+        smoothPitch = null;
+        smoothAt = 0;
+
+        if (config.mode === 'Single') {
+          singleTarget = null;
+        }
+
+        return;
+      }
+
+      target = selected.actor;
+
+      if (config.mode === 'Single') {
+        singleTarget = target;
+      }
+
+      const angles = targetAngles(eye, selected.point);
+      renderAim = {
+        yaw: angles.yaw,
+        pitch: angles.pitch,
+        at: performance.now()
+      };
+      installRenderHook(window.game);
+
+      attack(selected.actor, selected.point, eye);
+    });
   }
 })();

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Solstice",
   "short_name": "Solstice",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Solstice utilities for GOLDEN HOUR and Potato Epic.",
   "minimum_chrome_version": "111",
   "icons": {
@@ -52,7 +52,6 @@
         "modules/Movement/Sprint.js",
         "modules/Movement/NoJumpDelay.js",
         "modules/Player/AntiAim.js",
-        "modules/Player/CustomName.js",
         "modules/Visual/Watermark.js",
         "modules/Visual/ThirdPerson.js",
         "modules/Visual/ClickGui.js",
@@ -93,7 +92,6 @@
         "modules/Movement/Sprint.js",
         "modules/Movement/NoJumpDelay.js",
         "modules/Player/AntiAim.js",
-        "modules/Player/CustomName.js",
         "modules/Visual/ESP.js",
         "modules/Misc/UnLock.js",
         "modules/Visual/ThirdPerson.js",
@@ -139,7 +137,11 @@
         "modules/Combat/TriggerBot.js",
         "modules/Combat/NoRecoil.js",
         "modules/Misc/KillSound.js",
+        "modules/Combat/Aura.js",
+        "modules/Misc/UIDSpoof.js",
+        "modules/Misc/UnLock.js",
         "js/main.js",
+        "js/commands.js",
         "extension/page.js"
       ],
       "run_at": "document_start",
@@ -166,7 +168,10 @@
         "modules/Combat/AimBot.js",
         "modules/Combat/TriggerBot.js",
         "modules/Combat/NoRecoil.js",
-        "modules/Misc/KillSound.js"
+        "modules/Misc/KillSound.js",
+        "modules/Combat/Aura.js",
+        "modules/Misc/UIDSpoof.js",
+        "modules/Misc/UnLock.js"
       ],
       "run_at": "document_start",
       "all_frames": true,

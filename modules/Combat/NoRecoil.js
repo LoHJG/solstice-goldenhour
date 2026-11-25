@@ -1,5 +1,4 @@
 
-
 (() => {
   'use strict';
 
@@ -89,6 +88,11 @@
   }
 
   function installGame(bridge) {
+    if (bridge.game === 'potatoepic') {
+      installPotatoNoRecoil(bridge);
+      return;
+    }
+
     bridge.setRecoilSuppressed('norecoil', false);
 
     bridge.onConfig('solstice-combat', (data) => {
@@ -193,5 +197,104 @@
 
     installWrappers();
     setInterval(installWrappers, 500);
+  }
+
+  function installPotatoNoRecoil(bridge) {
+    let enabled = false;
+    let game = null;
+    let aimYaw = null;
+    let aimPitch = null;
+
+    function wrapMethod(object, name, marker, replacement) {
+      if (!object || typeof object[name] !== 'function' || object[name][marker]) {
+        return;
+      }
+
+      const original = object[name];
+      const wrapped = function wrappedPotatoNoRecoil(...args) {
+        if (!enabled) {
+          return original.apply(this, args);
+        }
+
+        return replacement(original, this, args);
+      };
+
+      Object.defineProperty(wrapped, marker, { value: true });
+      object[name] = wrapped;
+    }
+
+    function installHooks() {
+      const next = window.game;
+
+      if (next) {
+        game = next;
+
+        const renderer = game.renderer;
+
+        if (renderer) {
+          wrapMethod(renderer, 'setCamera', '__solsticeNoRecoilCamera', (original, context, args) => {
+            if (window.SolsticeAuraSilent) {
+              return original.apply(context, args);
+            }
+
+            if (Number.isFinite(aimYaw)) args[1] = aimYaw;
+            if (Number.isFinite(aimPitch)) args[2] = aimPitch;
+            return original.apply(context, args);
+          });
+        }
+
+        if (typeof game.render === 'function') {
+          wrapMethod(game, 'render', '__solsticeNoRecoilRender', (original, context, args) => {
+            if (window.SolsticeAuraSilent) {
+              return original.apply(context, args);
+            }
+
+            const player = game.player;
+            const yaw = player?.yaw;
+            const pitch = player?.pitch;
+            const result = original.apply(context, args);
+
+            if (player) {
+              player.yaw = yaw;
+              player.pitch = pitch;
+            }
+
+            return result;
+          });
+        }
+      }
+
+      for (const xz of [window.XZ, window.XZGUNS]) {
+        if (!xz || typeof xz !== 'object') continue;
+
+        wrapMethod(xz, 'kick', '__solsticeNoRecoilPotato', (original, context, args) => undefined);
+        wrapMethod(xz, 'shake', '__solsticeNoRecoilPotato', (original, context, args) => undefined);
+        wrapMethod(xz, 'recoilOf', '__solsticeNoRecoilPotato', (original, context, args) => 0);
+        wrapMethod(xz, 'spreadNow', '__solsticeNoRecoilPotato', (original, context, args) => 0);
+        wrapMethod(xz, 'shakeNow', '__solsticeNoRecoilPotato', (original, context, args) => null);
+      }
+    }
+
+    function frame() {
+      if (game?.player && enabled && !window.SolsticeAuraSilent) {
+        aimYaw = game.player.yaw;
+        aimPitch = game.player.pitch;
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    bridge.onConfig('solstice-combat', (data) => {
+      if (data.type !== 'config' || data.module !== 'norecoil') {
+        return;
+      }
+
+      enabled = Boolean(data.enabled);
+      installHooks();
+    });
+
+    installHooks();
+    setInterval(installHooks, 500);
+    requestAnimationFrame(frame);
   }
 })();

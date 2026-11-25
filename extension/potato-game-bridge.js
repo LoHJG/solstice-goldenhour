@@ -9,12 +9,9 @@
   const configHandlers = new Map();
   const frameCallbacks = [];
   const autoFireRequests = new Set();
-  const recoilSuppressors = new Set();
-  const killCallbacks = [];
   let game = null;
   let gfx = null;
   let hookedGame = null;
-  let lastKillCount = null;
   let lastFrameAt = 0;
 
   function makeVector(x = 0, y = 0, z = 0) {
@@ -109,7 +106,11 @@
   }
 
   function isAlive(entity) {
-    return Boolean(entity && !entity.dead && !(Number(entity.deathTime) > 0));
+    if (!entity || entity.dead || Number(entity.deathTime) > 0 || entity.invisible) {
+      return false;
+    }
+
+    return !(typeof entity.hasEffect === 'function' && entity.hasEffect('invisibility'));
   }
 
   function playerProxy(entity) {
@@ -289,41 +290,9 @@
     const render = (...args) => game.render(...args);
     gfx = { camera: cameraProxy(), render };
     const originalRender = game.render;
-    gfx.render = (...args) => {
-      const player = game?.player;
-      const yaw = player?.yaw;
-      const pitch = player?.pitch;
-      const result = originalRender.apply(game, args);
-
-      if (recoilSuppressors.size && player) {
-        player.yaw = yaw;
-        player.pitch = pitch;
-      }
-
-      return result;
-    };
+    gfx.render = (...args) => originalRender.apply(game, args);
     game.render = (...args) => gfx.render(...args);
     return gfx;
-  }
-
-  function installCameraHook() {
-    const renderer = game?.renderer;
-    if (!renderer || typeof renderer.setCamera !== 'function' || renderer.setCamera.__solsticePotatoCamera) {
-      return;
-    }
-
-    const originalSetCamera = renderer.setCamera;
-    const wrappedSetCamera = function wrappedPotatoSetCamera(position, yaw, pitch, fov, matrixCallback) {
-      if (recoilSuppressors.size && game?.player) {
-        if (Number.isFinite(game.__solsticeAimYaw)) yaw = game.__solsticeAimYaw;
-        if (Number.isFinite(game.__solsticeAimPitch)) pitch = game.__solsticeAimPitch;
-      }
-
-      return originalSetCamera.call(this, position, yaw, pitch, fov, matrixCallback);
-    };
-
-    Object.defineProperty(wrappedSetCamera, '__solsticePotatoCamera', { value: true });
-    renderer.setCamera = wrappedSetCamera;
   }
 
   function installGameHooks() {
@@ -333,63 +302,6 @@
     hookedGame = next;
     gfx = null;
     ensureGfx();
-    installCameraHook();
-  }
-
-  function installRecoilHooks() {
-    for (const xz of [window.XZGUNS, window.XZ]) {
-      if (!xz || typeof xz !== 'object') continue;
-
-      if (typeof xz.kick === 'function' && !xz.kick.__solsticePotatoNoRecoil) {
-        const originalKick = xz.kick;
-        const wrappedKick = function wrappedPotatoKick(...args) {
-          if (recoilSuppressors.size) return undefined;
-          return originalKick.apply(this, args);
-        };
-        Object.defineProperty(wrappedKick, '__solsticePotatoNoRecoil', { value: true });
-        xz.kick = wrappedKick;
-      }
-
-      if (typeof xz.shake === 'function' && !xz.shake.__solsticePotatoNoRecoil) {
-        const originalShake = xz.shake;
-        const wrappedShake = function wrappedPotatoShake(...args) {
-          if (recoilSuppressors.size) return undefined;
-          return originalShake.apply(this, args);
-        };
-        Object.defineProperty(wrappedShake, '__solsticePotatoNoRecoil', { value: true });
-        xz.shake = wrappedShake;
-      }
-
-      if (typeof xz.recoilOf === 'function' && !xz.recoilOf.__solsticePotatoNoRecoil) {
-        const originalRecoil = xz.recoilOf;
-        const wrappedRecoil = function wrappedPotatoRecoil(...args) {
-          if (recoilSuppressors.size) return 0;
-          return originalRecoil.apply(this, args);
-        };
-        Object.defineProperty(wrappedRecoil, '__solsticePotatoNoRecoil', { value: true });
-        xz.recoilOf = wrappedRecoil;
-      }
-
-      if (typeof xz.shakeNow === 'function' && !xz.shakeNow.__solsticePotatoNoRecoil) {
-        const originalShakeNow = xz.shakeNow;
-        const wrappedShakeNow = function wrappedPotatoShakeNow(...args) {
-          if (recoilSuppressors.size) return null;
-          return originalShakeNow.apply(this, args);
-        };
-        Object.defineProperty(wrappedShakeNow, '__solsticePotatoNoRecoil', { value: true });
-        xz.shakeNow = wrappedShakeNow;
-      }
-
-      if (typeof xz.spreadNow === 'function' && !xz.spreadNow.__solsticePotatoNoRecoil) {
-        const originalSpreadNow = xz.spreadNow;
-        const wrappedSpreadNow = function wrappedPotatoSpreadNow(...args) {
-          if (recoilSuppressors.size) return 0;
-          return originalSpreadNow.apply(this, args);
-        };
-        Object.defineProperty(wrappedSpreadNow, '__solsticePotatoNoRecoil', { value: true });
-        xz.spreadNow = wrappedSpreadNow;
-      }
-    }
   }
 
   function applyAutoFire() {
@@ -407,17 +319,6 @@
     if (enabled) autoFireRequests.add(id);
     else autoFireRequests.delete(id);
     applyAutoFire();
-  }
-
-  function setRecoilSuppressed(id, enabled) {
-    if (typeof id !== 'string') return;
-    if (enabled) recoilSuppressors.add(id);
-    else recoilSuppressors.delete(id);
-    installRecoilHooks();
-  }
-
-  function isRecoilSuppressed() {
-    return recoilSuppressors.size > 0;
   }
 
   function rayAabb(ox, oy, oz, dx, dy, dz, minX, minY, minZ, maxX, maxY, maxZ, maxDistance) {
@@ -445,31 +346,9 @@
     return near >= 0 ? near : null;
   }
 
-  function pollKills() {
-    const stats = window.Potato?.stats?.();
-    const count = Number(stats?.kills);
-    if (!Number.isFinite(count) || count < 0) return;
-    if (lastKillCount === null) {
-      lastKillCount = count;
-      return;
-    }
-    if (count > lastKillCount) {
-      const delta = count - lastKillCount;
-      lastKillCount = count;
-      for (const callback of killCallbacks) {
-        try {
-          callback(delta);
-        } catch {
-
-        }
-      }
-    }
-  }
-
   function runFrame(now) {
     const dt = lastFrameAt ? Math.min(0.1, Math.max(0, (now - lastFrameAt) / 1000)) : 1 / 60;
     lastFrameAt = now;
-    installCameraHook();
     if (game?.state === 'play' && !game.ui?.screen) {
       for (const callback of frameCallbacks) {
         try {
@@ -477,11 +356,6 @@
         } catch {
 
         }
-      }
-
-      if (game.player) {
-        game.__solsticeAimYaw = game.player.yaw;
-        game.__solsticeAimPitch = game.player.pitch;
       }
     }
     requestAnimationFrame(runFrame);
@@ -537,12 +411,15 @@
     installGameHooks();
   }
 
-  function onKill(callback) {
-    if (typeof callback === 'function') killCallbacks.push(callback);
-  }
-
   function isEnemy(actor, player) {
-    return Boolean(actor && player && actor !== player && actor._entity !== game?.player && actor.alive !== false);
+    return Boolean(
+      actor &&
+      player &&
+      actor !== player &&
+      actor._entity !== game?.player &&
+      actor._entity?.xzMate !== true &&
+      actor.alive !== false
+    );
   }
 
   function headPoint(actor, out = makeVector()) {
@@ -579,10 +456,7 @@
     onConfig,
     onBeforePlayerUpdate,
     onBeforeArsenalUpdate,
-    onKill,
     requestAutoFire,
-    setRecoilSuppressed,
-    isRecoilSuppressed,
     rayAabb,
     getContext,
     getGH,
@@ -629,7 +503,5 @@
   window.SolsticeGame = bridge;
   installGameHooks();
   setInterval(installGameHooks, 250);
-  setInterval(installRecoilHooks, 500);
-  setInterval(pollKills, 100);
   window.requestAnimationFrame(runFrame);
 })();

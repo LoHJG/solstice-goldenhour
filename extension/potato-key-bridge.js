@@ -8,20 +8,47 @@
     return;
   }
 
-  document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Insert' && event.key !== 'Escape') {
+  const seen = new WeakSet();
+
+  function forward(event) {
+    if (seen.has(event)) {
+      return;
+    }
+
+    seen.add(event);
+
+    if (event.key === 'Insert' || event.key === 'Escape') {
+      try {
+        window.parent.postMessage({
+          channel: CHANNEL,
+          type: 'key',
+          key: event.key,
+          keyCode: event.keyCode
+        }, PARENT_ORIGIN);
+      } catch {
+
+      }
+
+      return;
+    }
+
+    if (event.repeat) {
       return;
     }
 
     try {
       window.parent.postMessage({
         channel: CHANNEL,
-        type: 'key',
-        key: event.key,
-        keyCode: event.keyCode
+        type: 'down',
+        code: event.code || event.key,
+        key: event.key
       }, PARENT_ORIGIN);
     } catch {
 
     }
-  }, true);
+  }
+
+  window.addEventListener('keydown', forward, true);
+  document.addEventListener('keydown', forward, true);
+
 })();

@@ -192,10 +192,30 @@
       enabled = Boolean(data.enabled);
     });
 
+    function installPotatoHook() {
+      const xz = window.XZ;
+
+      if (!xz || typeof xz.sound !== 'function' || xz.sound.__solsticeKillSound) {
+        return;
+      }
+
+      const originalSound = xz.sound;
+      const wrappedSound = function killSoundXZ(name, ...args) {
+        if (enabled && /^kill_\d+$/.test(String(name))) {
+          sendKill();
+          return null;
+        }
+
+        return originalSound.apply(this, [name, ...args]);
+      };
+
+      Object.defineProperty(wrappedSound, '__solsticeKillSound', { value: true });
+      xz.sound = wrappedSound;
+    }
+
     if (bridge.game === 'potatoepic') {
-      bridge.onKill(() => {
-        if (enabled) sendKill();
-      });
+      installPotatoHook();
+      setInterval(installPotatoHook, 500);
       return;
     }
 

@@ -3,17 +3,18 @@
 
   const CHANNEL = 'solstice-uidspoof';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const HEARTBEAT_MS = 500;
   let lastSentAt = 0;
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
 
   function findGameFrame() {
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         return frame;
       }
     }
@@ -42,9 +43,8 @@
   }
 
   register({
-  game: "goldenhour",
     name: 'UIDSpoof',
-    desc: 'Sends a random online UID while enabled',
+    desc: 'Spoofs the online UID and disables the Potato login gate.',
     cat: 'Misc',
     nm: { l: 'uidspoof', ls: 'uid spoof', n: 'UIDSpoof', ns: 'UID Spoof' },
     disp: '',
@@ -73,11 +73,15 @@
   }
 
   function installGame(bridge) {
+    if (bridge.game === 'potatoepic') {
+      installPotatoUidSpoof(bridge);
+      return;
+    }
+
     const state = {
       enabled: false,
       used: false,
-      uid: '',
-      name: ''
+      uid: ''
     };
     let originalToy = null;
     let wrappedToy = null;
@@ -95,19 +99,9 @@
       return `toid_v1_k01_RRi_${encoded}`;
     }
 
-    function randomName() {
-      const bytes = new Uint8Array(4);
-      crypto.getRandomValues(bytes);
-      let suffix = '';
-      for (const byte of bytes) {
-        suffix += String(byte % 10);
-      }
-      return `楠炴彃鎲?{suffix}`;
-    }
 
     function freshIdentity() {
       state.uid = randomUID();
-      state.name = randomName();
     }
 
     freshIdentity();
@@ -116,8 +110,7 @@
       state.used = true;
       return {
         uid: state.uid,
-        toyOpenId: state.uid,
-        nickname: state.name
+        toyOpenId: state.uid
       };
     }
 
@@ -134,6 +127,7 @@
                 return Reflect.apply(target.getUserProfile, target, args);
               }
               state.used = true;
+              freshIdentity();
               try {
                 const profile = await Reflect.apply(target.getUserProfile, target, args);
                 if (profile && typeof profile === 'object') {
@@ -265,5 +259,159 @@
         setTimeout(() => location.reload(), 100);
       }
     });
+  }
+
+  function installPotatoUidSpoof(bridge) {
+    let enabled = false;
+    let used = false;
+    let uid = '';
+
+    function randomUid() {
+      const bytes = new Uint8Array(30);
+      crypto.getRandomValues(bytes);
+      let binary = '';
+
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+
+      const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+      return `toid_v1_k01_RRi_${encoded}`;
+    }
+
+    function freshIdentity() {
+      uid = randomUid();
+    }
+
+    function getToy() {
+      try {
+        return typeof Toy !== 'undefined' ? Toy : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function profileIdentity() {
+      try {
+        if (typeof Account !== 'undefined' && Account.data) {
+          return {
+            nickname: Account.data.nick || Account.data.name || '',
+            avatar: Account.data.avatar || ''
+          };
+        }
+      } catch {
+
+      }
+
+      return { nickname: '', avatar: '' };
+    }
+
+    function installHook() {
+      const toy = getToy();
+
+      if (!toy || typeof toy.profile !== 'function' || toy.profile.__solsticePotatoUidSpoof) {
+        return;
+      }
+
+      const originalProfile = toy.profile;
+      const wrappedProfile = async function wrappedPotatoUidProfile(...args) {
+        if (!enabled) {
+          return originalProfile.apply(this, args);
+        }
+
+        used = true;
+        return {
+          ...profileIdentity(),
+          uid,
+          toyOpenId: uid
+        };
+      };
+
+      Object.defineProperty(wrappedProfile, '__solsticePotatoUidSpoof', { value: true });
+      toy.profile = wrappedProfile;
+    }
+
+    let originalLoadGate = null;
+
+    function installLoginBypass() {
+      if (
+        typeof Account === 'undefined' ||
+        typeof Account.loadGate !== 'function' ||
+        Account.loadGate.__solsticePotatoUidNoLogin
+      ) {
+        return;
+      }
+
+      originalLoadGate = Account.loadGate;
+      const wrappedLoadGate = async function wrappedPotatoUidNoLoginGate() {
+        if (!enabled) {
+          return originalLoadGate.apply(this, arguments);
+        }
+
+        return { requireAccount: false, follow: false, triple: false };
+      };
+
+      Object.defineProperty(wrappedLoadGate, '__solsticePotatoUidNoLogin', { value: true });
+      Account.loadGate = wrappedLoadGate;
+    }
+
+    function removeLoginBypass() {
+      if (originalLoadGate && Account.loadGate?.__solsticePotatoUidNoLogin) {
+        Account.loadGate = originalLoadGate;
+      }
+
+      originalLoadGate = null;
+    }
+
+    freshIdentity();
+
+    function installLoginHook() {
+      if (
+        typeof Account === 'undefined' ||
+        typeof Account.loginBili !== 'function' ||
+        Account.loginBili.__solsticePotatoUidLogin
+      ) {
+        return;
+      }
+
+      const originalLoginBili = Account.loginBili;
+      const wrappedLoginBili = async function wrappedPotatoUidLoginBili(...args) {
+        if (enabled) {
+          freshIdentity();
+        }
+
+        return originalLoginBili.apply(this, args);
+      };
+
+      Object.defineProperty(wrappedLoginBili, '__solsticePotatoUidLogin', { value: true });
+      Account.loginBili = wrappedLoginBili;
+    }
+
+    bridge.onConfig(CHANNEL, (data) => {
+      if (data.type !== 'config') {
+        return;
+      }
+
+      const wasEnabled = enabled;
+      enabled = Boolean(data.enabled);
+
+      if (!wasEnabled && enabled) {
+        freshIdentity();
+        installHook();
+        installLoginBypass();
+      }
+
+      if (wasEnabled && !enabled && used) {
+        removeLoginBypass();
+        setTimeout(() => location.reload(), 100);
+      }
+    });
+
+    installHook();
+    installLoginHook();
+    installLoginBypass();
+    setInterval(installHook, 500);
+    setInterval(installLoginHook, 500);
+    setInterval(installLoginBypass, 500);
   }
 })();

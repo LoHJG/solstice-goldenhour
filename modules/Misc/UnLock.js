@@ -1,13 +1,14 @@
 (() => {
   'use strict';
 
-  if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/golden-hour/')) {
+  if (location.hostname === 'www.bilibilitoy.com' && (location.pathname.startsWith('/toy/golden-hour/') || location.pathname.startsWith('/toy/potatoepic/'))) {
     bootGame();
     return;
   }
 
   const CHANNEL = 'solstice-misc';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
+  const gamePrefix = () => (document.documentElement?.getAttribute('data-solstice-game') === 'potatoepic' || location.pathname.includes('/potatoepic/')) ? '/toy/potatoepic/' : '/toy/golden-hour/';
   const HEARTBEAT_MS = 500;
 
   let lastSentKey = '';
@@ -15,7 +16,7 @@
 
   function findGameFrame() {
     for (const frame of document.querySelectorAll('iframe')) {
-      if (frame.src.startsWith(`${GAME_ORIGIN}/toy/golden-hour/`)) {
+      if (frame.src.startsWith(`${GAME_ORIGIN}${gamePrefix()}`)) {
         return frame;
       }
     }
@@ -55,9 +56,8 @@
   }
 
   register({
-  game: "goldenhour",
     name: 'UnLock',
-    desc: 'Unlocks all weapons and camos.',
+    desc: 'Unlocks gated weapons and cosmetics.',
     cat: 'Misc',
     nm: { l: 'unlock', ls: 'un lock', n: 'UnLock', ns: 'Un Lock' },
     disp: '',
@@ -87,6 +87,11 @@
   }
 
   function installGame(bridge) {
+    if (bridge.game === 'potatoepic') {
+      installPotatoUnlock(bridge);
+      return;
+    }
+
     let enabled = false;
     let timer = 0;
     let originalCanUse = null;
@@ -349,6 +354,220 @@
         removeProfileGuard();
         relockWeapons();
         restoreProfile();
+      }
+    }
+
+    bridge.onConfig('solstice-misc', (data) => {
+      if (data.type === 'config' && data.module === 'unlock') {
+        setEnabled(Boolean(data.enabled));
+      }
+    });
+  }
+
+  function installPotatoUnlock(bridge) {
+    let enabled = false;
+    let timer = 0;
+    let originalHas = null;
+    let originalCheckUnlocks = null;
+    let originalAllUnlocked = null;
+    let previousUnlocks = null;
+    let unlockedToken = '';
+    let lastAttempt = 0;
+
+    function account() {
+      try {
+        return typeof Account !== 'undefined' ? Account : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function localUnlock() {
+      const acc = account();
+
+      if (!acc?.data) {
+        return;
+      }
+
+      acc.data.unlocks = {
+        ...(acc.data.unlocks || {}),
+        follow: true,
+        triple: true,
+        ai: true
+      };
+      acc.save?.();
+    }
+
+    function installPatches() {
+      const acc = account();
+
+      if (!acc) {
+        return;
+      }
+
+      localUnlock();
+
+      if (typeof acc.has === 'function' && !acc.has.__solsticePotatoUnlock) {
+        originalHas = acc.has;
+        const wrappedHas = function wrappedPotatoUnlockHas(name) {
+          if (!enabled) {
+            return originalHas.call(this, name);
+          }
+
+          return true;
+        };
+
+        Object.defineProperty(wrappedHas, '__solsticePotatoUnlock', { value: true });
+        acc.has = wrappedHas;
+      }
+
+      if (typeof acc.checkUnlocks === 'function' && !acc.checkUnlocks.__solsticePotatoUnlock) {
+        originalCheckUnlocks = acc.checkUnlocks;
+        const wrappedCheckUnlocks = async function wrappedPotatoUnlockCheck(...args) {
+          if (!enabled) {
+            return originalCheckUnlocks.apply(this, args);
+          }
+
+          localUnlock();
+          return { inToy: false, forced: true };
+        };
+
+        Object.defineProperty(wrappedCheckUnlocks, '__solsticePotatoUnlock', { value: true });
+        acc.checkUnlocks = wrappedCheckUnlocks;
+      }
+
+      if (typeof acc.allUnlocked === 'function' && !acc.allUnlocked.__solsticePotatoUnlock) {
+        originalAllUnlocked = acc.allUnlocked;
+        const wrappedAllUnlocked = function wrappedPotatoUnlockAll() {
+          return enabled ? true : originalAllUnlocked.call(this);
+        };
+
+        Object.defineProperty(wrappedAllUnlocked, '__solsticePotatoUnlock', { value: true });
+        acc.allUnlocked = wrappedAllUnlocked;
+      }
+    }
+
+    function restorePatches() {
+      const acc = account();
+
+      if (!acc) {
+        return;
+      }
+
+      if (originalHas && acc.has?.__solsticePotatoUnlock) {
+        acc.has = originalHas;
+      }
+
+      if (originalCheckUnlocks && acc.checkUnlocks?.__solsticePotatoUnlock) {
+        acc.checkUnlocks = originalCheckUnlocks;
+      }
+
+      if (originalAllUnlocked && acc.allUnlocked?.__solsticePotatoUnlock) {
+        acc.allUnlocked = originalAllUnlocked;
+      }
+
+      if (previousUnlocks && acc.data) {
+        acc.data.unlocks = previousUnlocks;
+        acc.save?.();
+      }
+
+      originalHas = null;
+      originalCheckUnlocks = null;
+      originalAllUnlocked = null;
+      previousUnlocks = null;
+      unlockedToken = '';
+      lastAttempt = 0;
+    }
+
+    async function unlockServer() {
+      const acc = account();
+
+      if (!enabled || !acc?.token) {
+        return;
+      }
+
+      if (acc.token === unlockedToken && acc.data?.unlocks?.triple) {
+        return;
+      }
+
+      const now = Date.now();
+
+      if (now - lastAttempt < 5000) {
+        return;
+      }
+
+      lastAttempt = now;
+
+      let gate = {};
+
+      try {
+        gate = await acc.api('/api/gate');
+      } catch {
+
+      }
+
+      const videos = Array.isArray(gate?.videos) ? gate.videos : [];
+
+      try {
+        const result = await acc.api('/api/account/unlocks', {
+          follow: true,
+          triple: true,
+          ai: true,
+          videos,
+          tv: videos[0] || null,
+          any: true
+        });
+
+        if (result?.account) {
+          acc.took?.(result);
+        } else {
+          localUnlock();
+        }
+
+        unlockedToken = acc.token;
+      } catch {
+
+      }
+    }
+
+    function startTimer() {
+      if (timer) {
+        return;
+      }
+
+      timer = setInterval(() => {
+        if (!enabled) {
+          return;
+        }
+
+        installPatches();
+        unlockServer();
+      }, 1000);
+    }
+
+    function stopTimer() {
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+    }
+
+    function setEnabled(next) {
+      if (enabled === next) {
+        return;
+      }
+
+      if (next) {
+        const acc = account();
+        previousUnlocks = acc?.data ? { ...(acc.data.unlocks || {}) } : null;
+        enabled = true;
+        installPatches();
+        unlockServer();
+        startTimer();
+      } else {
+        enabled = false;
+        stopTimer();
+        restorePatches();
       }
     }
 
