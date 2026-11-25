@@ -795,7 +795,7 @@
 
     bridge.onReset(() => {
       releaseAds();
-      bridge.requestAutoFire('aura', false);
+        bridge.requestAutoFire('aura', false);
     });
 
     installSprintLock();
@@ -813,10 +813,14 @@
     let singleTarget = null;
     let aimScratch = null;
     let renderAim = null;
-    let smoothYaw = null;
-    let smoothPitch = null;
-    let smoothAt = 0;
-    let lastShotAt = 0;
+    let aimPoint = null;
+    let autoFireActive = false;
+    let tickAim = false;
+    let pendingRestore = null;
+    let tickHookInstalled = false;
+    let playerTickHook = null;
+    let traceHookInstalled = false;
+    let renderFireHookInstalled = false;
     let renderHookInstalled = false;
 
     function playerOrigin(player) {
@@ -914,26 +918,11 @@
           return originalDrawMob.call(this, entity, ...args);
         }
 
-        const now = performance.now();
-
-        if (now - smoothAt > 8) {
-          if (smoothYaw === null || smoothPitch === null) {
-            smoothYaw = Number(this.player.yaw) || 0;
-            smoothPitch = Number(this.player.pitch) || 0;
-          }
-
-          const dt = smoothAt ? Math.min(0.05, Math.max(0.001, (now - smoothAt) / 1000)) : 1 / 60;
-          smoothAt = now;
-          const k = 1 - Math.exp(-dt * 18);
-          smoothYaw += wrapAngle(renderAim.yaw - smoothYaw) * k;
-          smoothPitch += (renderAim.pitch - smoothPitch) * k;
-        }
-
         const yaw = this.player.yaw;
         const pitch = this.player.pitch;
 
-        this.player.yaw = smoothYaw ?? renderAim.yaw;
-        this.player.pitch = smoothPitch ?? renderAim.pitch;
+        this.player.yaw = renderAim.yaw;
+        this.player.pitch = renderAim.pitch;
 
         try {
           return originalDrawMob.call(this, entity, ...args);
@@ -944,156 +933,151 @@
       };
     }
 
-    function fireGun(game, actor, point, eye) {
-      const xz = window.XZ;
-      const player = game.player;
-      const held = player?.inv?.held;
-      const state = typeof xz?.state === 'function' ? xz.state(player) : null;
-
-      if (
-        !xz ||
-        typeof xz.trace !== 'function' ||
-        !player ||
-        state?.rel ||
-        game.ui?.screen ||
-        game.mode === 'spectator' ||
-        (typeof xz.noFire === 'function' && xz.noFire(game))
-      ) {
-        return false;
+    function installPlayerTickHook(player) {
+      if (!player || typeof player.tick !== 'function' || player.tick.__solsticeAuraTick) {
+        return;
       }
 
-      const gun = typeof xz.gun === 'function' ? xz.gun(held) : null;
+      const originalTick = player.tick;
+      const wrappedTick = function auraPlayerTick(input) {
+        const result = originalTick.call(this, input);
 
-      if (!gun) {
-        return false;
-      }
-
-      const rounds = typeof xz.rounds === 'function' ? xz.rounds(held) : 0;
-
-      if (rounds <= 0) {
-        try {
-          xz.startReload?.(game);
-        } catch {
-
+        if (tickAim && !pendingRestore && renderAim) {
+          pendingRestore = {
+            player: this,
+            yaw: this.yaw,
+            pitch: this.pitch
+          };
+          this.yaw = renderAim.yaw;
+          this.pitch = renderAim.pitch;
         }
 
-        return false;
-      }
-
-      const now = performance.now();
-      const rate = Math.max(0.1, Number(gun.rate) || 1);
-
-      if (now - lastShotAt < 1000 / rate) {
-        return false;
-      }
-
-      lastShotAt = now;
-
-      const origin = typeof xz.eyeOf === 'function' ? xz.eyeOf(player) : [eye.x, eye.y, eye.z];
-      const angles = targetAngles({ x: origin[0], y: origin[1], z: origin[2] }, point);
-      const direction = xz.dirOf(angles.yaw, angles.pitch);
-      const world = game.world;
-      let originalGetBlock = null;
-
-      renderAim = {
-        yaw: angles.yaw,
-        pitch: angles.pitch,
-        at: now
+        return result;
       };
-      installRenderHook(game);
 
-      if (config.attackThroughWalls && world?.getBlock && !bridge.worldLineClear(eye, point)) {
-        originalGetBlock = world.getBlock;
-        world.getBlock = function getBlockAura() {
-          return 0;
-        };
-      }
-
-      let distance = 0;
-
-      try {
-        distance = xz.trace(
-          game,
-          player,
-          origin,
-          direction,
-          gun.pen,
-          gun.dmg,
-          gun.range || 200,
-          held
-        );
-
-        if (typeof xz.setRounds === 'function') {
-          xz.setRounds(held, Math.max(0, rounds - 1));
-        }
-
-        try {
-          xz.anim?.(player, held, 'fire');
-        } catch {
-
-        }
-
-        try {
-          const key = typeof xz.key === 'function' ? xz.key(held) : '';
-          const sound = 'fire_' + key;
-
-          if (xz.R?.sounds?.[sound]) {
-            xz.sound?.(sound, player.pos, gun.auto ? 0.8 : 1);
-          }
-        } catch {
-
-        }
-
-        const end = [
-          origin[0] + direction[0] * (Number(distance) || 0),
-          origin[1] + direction[1] * (Number(distance) || 0),
-          origin[2] + direction[2] * (Number(distance) || 0)
-        ];
-        const muzzle = [
-          origin[0] + direction[0] * 0.7,
-          origin[1] + direction[1] * 0.7,
-          origin[2] + direction[2] * 0.7
-        ];
-
-        try {
-          xz.tracer?.(game, muzzle, end);
-          xz.flash?.(game, muzzle, direction);
-        } catch {
-
-        }
-
-        try {
-          xz.onFired?.(game, player, held);
-        } catch {
-
-        }
-
-        if (rounds - 1 <= 0) {
-          try {
-            xz.startReload?.(game);
-          } catch {
-
-          }
-        }
-
-        return true;
-      } catch {
-        return false;
-      } finally {
-        if (originalGetBlock) {
-          world.getBlock = originalGetBlock;
-        }
-      }
+      Object.defineProperty(wrappedTick, '__solsticeAuraTick', { value: true });
+      player.tick = wrappedTick;
+      playerTickHook = wrappedTick;
     }
 
-    function attack(actor, point, eye) {
-      const game = window.game;
-
-      if (!game || actor.alive === false || game.net || game.p2pGuest) {
-        return false;
+    function installRenderFireHook(game) {
+      if (renderFireHookInstalled || !game || typeof game.render !== 'function') {
+        return;
       }
 
-      return fireGun(game, actor, point, eye);
+      renderFireHookInstalled = true;
+      const originalRender = game.render;
+
+      game.render = function auraRender(...args) {
+        const xz = window.XZ;
+        const player = this.player;
+        const state = typeof xz?.state === 'function' ? xz.state(player) : null;
+        const suppress = Boolean(
+          config.enabled &&
+          aimPoint &&
+          renderAim &&
+          autoFireActive &&
+          !this.rawMouse?.[0]
+        );
+        let trig = false;
+        let mouse = false;
+        let click = false;
+
+        if (suppress && state) {
+          trig = state.trig;
+          mouse = this.mouseBtn?.[0];
+          click = this.mouseClicked0;
+          state.trig = false;
+
+          if (this.mouseBtn) {
+            this.mouseBtn[0] = false;
+          }
+
+          this.mouseClicked0 = false;
+        }
+
+        try {
+          return originalRender.apply(this, args);
+        } finally {
+          if (suppress && state) {
+            state.trig = trig;
+
+            if (this.mouseBtn) {
+              this.mouseBtn[0] = mouse;
+            }
+
+            this.mouseClicked0 = click;
+          }
+        }
+      };
+    }
+
+    function installTickHook(game) {
+      if (tickHookInstalled || !game || typeof game.tick !== 'function') {
+        return;
+      }
+
+      tickHookInstalled = true;
+      const originalTick = game.tick;
+
+      game.tick = function auraGameTick(...args) {
+        const player = this.player;
+        tickAim = Boolean(
+          config.enabled &&
+          aimPoint &&
+          renderAim &&
+          player &&
+          this.state === 'play' &&
+          autoFireActive
+        );
+
+        if (tickAim) {
+          installPlayerTickHook(player);
+        }
+
+        try {
+          return originalTick.apply(this, args);
+        } finally {
+          if (pendingRestore) {
+            pendingRestore.player.yaw = pendingRestore.yaw;
+            pendingRestore.player.pitch = pendingRestore.pitch;
+            pendingRestore = null;
+          }
+
+          tickAim = false;
+        }
+      };
+    }
+
+    function installTraceHook() {
+      const xz = window.XZ;
+
+      if (!xz || typeof xz.trace !== 'function' || xz.trace.__solsticeAuraTrace) {
+        return;
+      }
+
+      const originalTrace = xz.trace;
+      const wrappedTrace = function auraTrace(game, player, origin, direction, ...args) {
+        if (config.enabled && target && aimPoint && player === game?.player) {
+          const ox = Array.isArray(origin) ? origin[0] : origin?.x;
+          const oy = Array.isArray(origin) ? origin[1] : origin?.y;
+          const oz = Array.isArray(origin) ? origin[2] : origin?.z;
+          const dx = aimPoint.x - (Number(ox) || 0);
+          const dy = aimPoint.y - (Number(oy) || 0);
+          const dz = aimPoint.z - (Number(oz) || 0);
+          const length = Math.hypot(dx, dy, dz);
+
+          if (length > 1e-5) {
+            direction = [dx / length, dy / length, dz / length];
+          }
+        }
+
+        return originalTrace.call(this, game, player, origin, direction, ...args);
+      };
+
+      Object.defineProperty(wrappedTrace, '__solsticeAuraTrace', { value: true });
+      xz.trace = wrappedTrace;
+      traceHookInstalled = true;
     }
 
     bridge.onConfig('solstice-combat', (data) => {
@@ -1114,9 +1098,9 @@
         target = null;
         singleTarget = null;
         renderAim = null;
-        smoothYaw = null;
-        smoothPitch = null;
-        smoothAt = 0;
+        aimPoint = null;
+        autoFireActive = false;
+        bridge.requestAutoFire('aura', false);
       }
     });
 
@@ -1125,9 +1109,9 @@
         target = null;
         singleTarget = null;
         renderAim = null;
-        smoothYaw = null;
-        smoothPitch = null;
-        smoothAt = 0;
+        aimPoint = null;
+        autoFireActive = false;
+        bridge.requestAutoFire('aura', false);
         return;
       }
 
@@ -1137,9 +1121,9 @@
         target = null;
         singleTarget = null;
         renderAim = null;
-        smoothYaw = null;
-        smoothPitch = null;
-        smoothAt = 0;
+        aimPoint = null;
+        autoFireActive = false;
+        bridge.requestAutoFire('aura', false);
         return;
       }
 
@@ -1149,9 +1133,9 @@
       if (!selected) {
         target = null;
         renderAim = null;
-        smoothYaw = null;
-        smoothPitch = null;
-        smoothAt = 0;
+        aimPoint = null;
+        autoFireActive = false;
+        bridge.requestAutoFire('aura', false);
 
         if (config.mode === 'Single') {
           singleTarget = null;
@@ -1161,6 +1145,7 @@
       }
 
       target = selected.actor;
+      aimPoint = selected.point;
 
       if (config.mode === 'Single') {
         singleTarget = target;
@@ -1173,8 +1158,11 @@
         at: performance.now()
       };
       installRenderHook(window.game);
-
-      attack(selected.actor, selected.point, eye);
+      installTickHook(window.game);
+      installRenderFireHook(window.game);
+      installTraceHook();
+      autoFireActive = true;
+      bridge.requestAutoFire('aura', true);
     });
   }
 })();
