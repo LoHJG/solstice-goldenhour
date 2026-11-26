@@ -76,6 +76,14 @@
     }
   }
 
+  function exposeNotch() {
+    const root = document.documentElement;
+
+    if (root && !root.hasAttribute('data-solstice-notch')) {
+      root.setAttribute('data-solstice-notch', chrome.runtime.getURL('assets/img/notch.png'));
+    }
+  }
+
   function exposeGameName() {
     const root = document.documentElement;
 
@@ -258,8 +266,10 @@
   scheduleFontInjection();
   exposeAudioBase();
   exposeSevenDays();
+  exposeNotch();
   exposeGameName();
   document.addEventListener('DOMContentLoaded', exposeAudioBase, { once: true });
   document.addEventListener('DOMContentLoaded', exposeSevenDays, { once: true });
+  document.addEventListener('DOMContentLoaded', exposeNotch, { once: true });
   document.addEventListener('DOMContentLoaded', exposeGameName, { once: true });
 })();

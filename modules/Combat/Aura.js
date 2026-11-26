@@ -1152,6 +1152,7 @@
         singleTarget = null;
         renderAim = null;
         aimPoint = null;
+        window.SolsticeAuraTarget = null;
         clearFireAim();
         setFireHeld(false);
       }
@@ -1163,6 +1164,7 @@
         singleTarget = null;
         renderAim = null;
         aimPoint = null;
+        window.SolsticeAuraTarget = null;
         setFireHeld(false);
         return;
       }
@@ -1174,6 +1176,7 @@
         singleTarget = null;
         renderAim = null;
         aimPoint = null;
+        window.SolsticeAuraTarget = null;
         setFireHeld(false);
         return;
       }
@@ -1185,6 +1188,7 @@
         target = null;
         renderAim = null;
         aimPoint = null;
+        window.SolsticeAuraTarget = null;
         setFireHeld(false);
 
         if (config.mode === 'Single') {
@@ -1196,6 +1200,8 @@
 
       target = selected.actor;
       aimPoint = selected.point;
+      window.SolsticeAuraTarget = selected.actor;
+      window.SolsticeAuraTargetAt = performance.now();
 
       if (config.mode === 'Single') {
         singleTarget = target;

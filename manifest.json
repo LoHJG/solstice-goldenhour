@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Solstice",
   "short_name": "Solstice",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "Solstice utilities for GOLDEN HOUR and Potato Epic.",
   "minimum_chrome_version": "111",
   "icons": {
@@ -129,6 +129,7 @@
         "modules/Visual/Interface.js",
         "modules/Visual/Arraylist.js",
         "modules/Visual/Watermark.js",
+        "modules/Visual/TargetHUD.js",
         "modules/Visual/Notifications.js",
         "modules/Visual/HudEditor.js",
         "modules/Misc/ToggleSounds.js",
@@ -193,7 +194,8 @@
       "resources": [
         "assets/fonts/*",
         "assets/audio/*",
-        "assets/img/seven_days.png"
+        "assets/img/seven_days.png",
+        "assets/img/notch.png"
       ],
       "matches": [
         "https://www.bilibili.com/*"

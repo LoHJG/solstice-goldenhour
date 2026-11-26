@@ -53,6 +53,7 @@
       type: 'config',
       module: 'speed',
       enabled: Boolean(module.on),
+      mode: setting(module, 'Mode', 0) === 1 ? 'Legit' : 'Friction',
       damageBoost: Boolean(setting(module, 'Damage Boost', 0)),
       damageBoostSpeed: Number(setting(module, 'Damage Boost Speed', 3)),
       damageBoostSlowdown: Number(setting(module, 'Damage Boost Slowdown', 0.15)),
@@ -83,8 +84,9 @@
     desc: 'Lets you move faster.',
     cat: 'Movement',
     nm: { l: 'speed', ls: 'speed', n: 'Speed', ns: 'Speed' },
-    disp: 'Speed',
+    disp: 'Mode',
     settings: [
+      { t: 'e', n: 'Mode', d: 'The mode of speed', v: 0, vals: ['Friction', 'Legit'] },
       { t: 'b', n: 'Damage Boost', d: 'Whether or not to boost speed when taking damage.', v: 0 },
       { t: 'n', n: 'Damage Boost Speed', d: 'The speed to boost when taking damage.', v: 3, min: 1, max: 10, step: 0.01 },
       { t: 'n', n: 'Damage Boost Slowdown', d: 'The friction to apply when taking damage.', v: 0.15, min: 0, max: 1, step: 0.01 },
@@ -138,6 +140,7 @@
   function installGame(bridge) {
     let enabled = false;
     let config = {
+      mode: 'Friction',
       damageBoost: false,
       damageBoostSpeed: 3,
       damageBoostSlowdown: 0.15,
@@ -313,6 +316,7 @@
 
       enabled = Boolean(data.enabled);
       config = {
+        mode: data.mode === 'Legit' ? 'Legit' : 'Friction',
         damageBoost: data.damageBoost === true,
         damageBoostSpeed: Math.max(1, Math.min(10, Number(data.damageBoostSpeed) || 1)),
         damageBoostSlowdown: Math.max(0, Math.min(1, Number(data.damageBoostSlowdown) || 0)),

@@ -212,6 +212,35 @@
       get box() {
         return entityBox(entity);
       },
+      get name() {
+        const raw = entity.name ?? entity.rawName ?? entity.displayName ?? entity.customName ?? entity.type ?? 'Target';
+        return String(raw).replace(/\u00a7./g, '').slice(0, 64);
+      },
+      get type() {
+        return entity.type || 'player';
+      },
+      get health() {
+        const peerHealth = Number(entity.peer?.state?.health);
+        if (Number.isFinite(peerHealth)) return peerHealth;
+
+        const value = Number(entity.health);
+        return Number.isFinite(value) ? value : 20;
+      },
+      get maxHealth() {
+        const value = Number(entity.maxHealth ?? entity.maxHp);
+        return Number.isFinite(value) && value > 0 ? value : 20;
+      },
+      get absorption() {
+        const value = Number(entity.absorption);
+        return Number.isFinite(value) ? value : 0;
+      },
+      get hurtTime() {
+        const value = Number(entity.hurtTime);
+        return Number.isFinite(value) ? value : 0;
+      },
+      get look() {
+        return entity.look || null;
+      },
       get isK9() {
         return false;
       }
@@ -295,6 +324,51 @@
     return gfx;
   }
 
+  let targetHudShotId = 0;
+  let targetHudShotDamage = 0;
+  let targetHudShotTarget = '';
+
+  function targetHudTargetId(entity) {
+    return String(entity?.id ?? entity?.runtimeId ?? entity?.name ?? '');
+  }
+
+  function installXZHooks() {
+    const xz = window.XZ;
+
+    if (!xz || typeof xz.onFired !== 'function' || xz.onFired.__solsticeTargetHud) {
+      return;
+    }
+
+    const original = xz.onFired;
+
+    const wrapped = function solsticeTargetHudFired(firedGame, player, ...args) {
+      try {
+        const target = window.SolsticeAuraTarget;
+        const entity = target?._entity;
+
+        if (firedGame?.player === player && entity) {
+          const gun = typeof xz.gun === 'function' ? xz.gun(player.inv?.held) : null;
+          const damage = Number(gun?.dmg ?? gun?.damage) || 0;
+
+          if (damage > 0) {
+            targetHudShotId++;
+            targetHudShotDamage = damage
+              * (Number(gun.head) || 2)
+              * Math.max(1, Number(gun.pellets) || 1);
+            targetHudShotTarget = targetHudTargetId(entity);
+          }
+        }
+      } catch {
+
+      }
+
+      return original.apply(this, arguments);
+    };
+
+    Object.defineProperty(wrapped, '__solsticeTargetHud', { value: true });
+    xz.onFired = wrapped;
+  }
+
   function installGameHooks() {
     const next = window.game;
     if (!next || next === hookedGame) return;
@@ -346,9 +420,143 @@
     return near >= 0 ? near : null;
   }
 
+  const hudHeadCache = new Map();
+  const hudHeadLoading = new Set();
+  let lastHudAt = 0;
+  let lastHudHiddenAt = 0;
+  let lastHudHeadKey = '';
+  let lastHudHeadSentAt = 0;
+
+  function cleanTargetName(entity) {
+    const raw = entity?.name ?? entity?.rawName ?? entity?.displayName ?? entity?.customName ?? entity?.type ?? 'Target';
+    return String(raw).replace(/\u00a7./g, '').slice(0, 64);
+  }
+
+  function targetSkin(actor) {
+    const entity = actor?._entity;
+    if (!entity) return '';
+
+    const own = entity.look?.skin || entity.skinId || (typeof entity.skin === 'string' ? entity.skin : null);
+    if (own) return String(own);
+
+    if (entity.type !== 'player') {
+      return String(game?.player?.look?.skin || '');
+    }
+
+    return '';
+  }
+
+  function ensureHudHead(skin) {
+    let skins = null;
+
+    try {
+      skins = typeof Skins !== 'undefined' ? Skins : window.Skins;
+    } catch {
+
+    }
+
+    if (!skins) {
+      try {
+        skins = window.eval('Skins');
+      } catch {
+
+      }
+    }
+
+    if (!skin || hudHeadCache.has(skin) || hudHeadLoading.has(skin) || typeof skins?.load !== 'function') {
+      return;
+    }
+
+    hudHeadLoading.add(skin);
+
+    Promise.resolve(skins.load(skin)).then((source) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 8;
+      canvas.height = 8;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.imageSmoothingEnabled = false;
+      context.drawImage(source, 8, 8, 8, 8, 0, 0, 8, 8);
+      hudHeadCache.set(skin, canvas.toDataURL('image/png'));
+    }).catch(() => {
+
+    }).finally(() => {
+      hudHeadLoading.delete(skin);
+    });
+  }
+
+  function postTargetHud(now) {
+    if (window.parent === window) return;
+
+    if (now - lastHudAt < 33) return;
+    lastHudAt = now;
+
+    const actor = window.SolsticeAuraTarget;
+    const targetAt = Number(window.SolsticeAuraTargetAt) || 0;
+    const fresh = Boolean(
+      actor &&
+      game?.state === 'play' &&
+      !game.ui?.screen &&
+      now - targetAt < 500
+    );
+
+    if (!fresh) {
+      if (now - lastHudHiddenAt < 120) return;
+      lastHudHiddenAt = now;
+      window.parent.postMessage({
+        channel: 'solstice-targethud',
+        type: 'state',
+        hasTarget: false
+      }, PARENT_ORIGIN);
+      return;
+    }
+
+    lastHudHiddenAt = 0;
+    const entity = actor._entity;
+    const skin = targetSkin(actor);
+    const headKey = skin || 'default';
+    ensureHudHead(skin);
+
+    const head = hudHeadCache.get(headKey) || hudHeadCache.get(skin) || null;
+    let sendHead = null;
+
+    if (head && (headKey !== lastHudHeadKey || now - lastHudHeadSentAt > 2000)) {
+      sendHead = head;
+      lastHudHeadKey = headKey;
+      lastHudHeadSentAt = now;
+    }
+
+    const health = Number(actor.health);
+    const maxHealth = Number(actor.maxHealth) || 20;
+    const healthKnown = Number.isFinite(Number(entity?.peer?.state?.health)) || (entity?.type !== 'player' && Number.isFinite(Number(entity?.health)));
+    const localHealth = Number(game?.player?.health) || 0;
+
+    window.parent.postMessage({
+      channel: 'solstice-targethud',
+      type: 'state',
+      hasTarget: true,
+      at: now,
+      id: String(entity?.id ?? entity?.runtimeId ?? entity?.name ?? headKey),
+      name: entity?.type === 'player' ? cleanTargetName(entity) : 'Mob',
+      health: Number.isFinite(health) ? health : maxHealth,
+      healthKnown,
+      maxHealth,
+      localHealth,
+      absorption: Number(actor.absorption) || 0,
+      hurtTime: Number(actor.hurtTime) || 0,
+      lastDamage: targetHudShotTarget === targetHudTargetId(entity) ? targetHudShotDamage : 0,
+      damageId: targetHudShotTarget === targetHudTargetId(entity) ? targetHudShotId : 0,
+      headKey,
+      head: sendHead,
+      status: localHealth >= health ? 'Winning' : 'Losing'
+    }, PARENT_ORIGIN);
+  }
+
   function runFrame(now) {
     const dt = lastFrameAt ? Math.min(0.1, Math.max(0, (now - lastFrameAt) / 1000)) : 1 / 60;
     lastFrameAt = now;
+    postTargetHud(now);
+
     if (game?.state === 'play' && !game.ui?.screen) {
       for (const callback of frameCallbacks) {
         try {
