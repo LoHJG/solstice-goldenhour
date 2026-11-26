@@ -708,6 +708,59 @@
     }
   });
 
+  function installAntiCheatSink() {
+    if (typeof WebSocket !== 'function' || WebSocket.__solsticeIcSink) {
+      return;
+    }
+
+    const NativeWebSocket = WebSocket;
+
+    const PatchedWebSocket = function SolsticeWebSocket(...args) {
+      const socket = new NativeWebSocket(...args);
+      const nativeSend = socket.send;
+
+      Object.defineProperty(socket, 'send', {
+        configurable: true,
+        value: function send(data) {
+          if (typeof data === 'string' && data.includes('"ic"')) {
+            try {
+              const packet = JSON.parse(data);
+
+              if (packet && packet.t === 'ic') {
+                return undefined;
+              }
+            } catch {
+
+            }
+          }
+
+          return nativeSend.call(socket, data);
+        }
+      });
+
+      return socket;
+    };
+
+    PatchedWebSocket.prototype = NativeWebSocket.prototype;
+
+    for (const key of ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED']) {
+      if (key in NativeWebSocket) {
+        PatchedWebSocket[key] = NativeWebSocket[key];
+      }
+    }
+
+    try {
+      Object.setPrototypeOf(PatchedWebSocket, NativeWebSocket);
+    } catch {
+
+    }
+
+    Object.defineProperty(PatchedWebSocket, '__solsticeIcSink', { value: true });
+    window.WebSocket = PatchedWebSocket;
+  }
+
+  installAntiCheatSink();
+
   window.SolsticeGame = bridge;
   installGameHooks();
   setInterval(installGameHooks, 250);
