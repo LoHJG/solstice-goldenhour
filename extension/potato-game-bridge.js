@@ -744,6 +744,85 @@
 
     const NativeWebSocket = WebSocket;
 
+    function isDetectionKey(key) {
+      return typeof key === 'string' && /^(?:pre|n|ref|mark|dom|xz|prop|data|cheat|dev):/.test(key);
+    }
+
+    function isIcqEvent(event) {
+      if (typeof event?.data !== 'string' || !event.data.includes('"icq"')) {
+        return false;
+      }
+
+      try {
+        return JSON.parse(event.data)?.t === 'icq';
+      } catch {
+        return false;
+      }
+    }
+
+    function withCleanFindings(handler, thisArg, event) {
+      const nativeSlice = Array.prototype.slice;
+      const nativeJoin = Array.prototype.join;
+
+      Array.prototype.slice = function slice(start, end) {
+        const result = nativeSlice.call(this, start, end);
+
+        if (Array.isArray(result) && result.length && result.every(isDetectionKey)) {
+          return result.filter((key) => !isDetectionKey(key));
+        }
+
+        return result;
+      };
+
+      Array.prototype.join = function join(separator) {
+        if (Array.isArray(this) && this.length && this.every(isDetectionKey)) {
+          return '';
+        }
+
+        return nativeJoin.call(this, separator);
+      };
+
+      try {
+        return handler.call(thisArg, event);
+      } finally {
+        Array.prototype.slice = nativeSlice;
+        Array.prototype.join = nativeJoin;
+      }
+    }
+
+    const nativeOnMessage = Object.getOwnPropertyDescriptor(NativeWebSocket.prototype, 'onmessage');
+    const messageHandlers = new WeakMap();
+
+    if (nativeOnMessage?.get && nativeOnMessage?.set) {
+      try {
+        Object.defineProperty(NativeWebSocket.prototype, 'onmessage', {
+          configurable: true,
+          enumerable: true,
+          get() {
+            return messageHandlers.get(this) ?? nativeOnMessage.get.call(this);
+          },
+          set(handler) {
+            if (typeof handler !== 'function') {
+              messageHandlers.delete(this);
+              nativeOnMessage.set.call(this, handler);
+              return;
+            }
+
+            messageHandlers.set(this, handler);
+            nativeOnMessage.set.call(this, function onMessage(event) {
+              if (!isIcqEvent(event)) {
+                return handler.call(this, event);
+              }
+
+              return withCleanFindings(handler, this, event);
+            });
+          }
+        });
+      } catch {
+
+      }
+    }
+
     const PatchedWebSocket = function SolsticeWebSocket(...args) {
       const socket = new NativeWebSocket(...args);
       const nativeSend = socket.send;
@@ -751,12 +830,17 @@
       Object.defineProperty(socket, 'send', {
         configurable: true,
         value: function send(data) {
-          if (typeof data === 'string' && data.includes('"ic"')) {
+          if (typeof data === 'string' && (data.includes('"ic"') || data.includes('"ica"'))) {
             try {
               const packet = JSON.parse(data);
 
               if (packet && packet.t === 'ic') {
                 return undefined;
+              }
+
+              if (packet && packet.t === 'ica') {
+                packet.k = [];
+                data = JSON.stringify(packet);
               }
             } catch {
 
