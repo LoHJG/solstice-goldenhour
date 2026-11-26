@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Solstice",
   "short_name": "Solstice",
-  "version": "1.0.23",
+  "version": "1.1.10",
   "description": "Solstice utilities for GOLDEN HOUR and Potato Epic.",
   "minimum_chrome_version": "111",
   "icons": {
@@ -82,6 +82,7 @@
         "https://www.bilibilitoy.com/toy/golden-hour/*"
       ],
       "js": [
+        "extension/native-guard.js",
         "extension/game-key-bridge.js",
         "modules/Misc/UIDSpoof.js",
         "modules/Misc/CustomServer.js",
@@ -170,6 +171,7 @@
         "https://www.bilibilitoy.com/toy/potatoepic/*"
       ],
       "js": [
+        "extension/native-guard.js",
         "extension/potato-game-bridge.js",
         "modules/Visual/ESP.js",
         "modules/Combat/AimBot.js",
