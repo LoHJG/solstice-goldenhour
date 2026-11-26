@@ -100,6 +100,16 @@
 
   setInterval(syncConfig, 250);
 
+  document.addEventListener('solstice:module-toggle', (event) => {
+    if (event.detail?.name !== 'Fly') {
+      return;
+    }
+
+    lastSentAt = 0;
+    syncConfig();
+  });
+
+
   function bootGame() {
     let attempts = 0;
 
@@ -380,9 +390,7 @@
         debug('disabled');
       }
 
-      if (player && hookedPlayer !== player) {
-        installTravelHook(window.game);
-      }
+      installTravelHook(window.game);
     });
 
     installTravelHook(window.game);

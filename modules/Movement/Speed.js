@@ -117,6 +117,16 @@
 
   setInterval(syncConfig, 250);
 
+  document.addEventListener('solstice:module-toggle', (event) => {
+    if (event.detail?.name !== 'Speed') {
+      return;
+    }
+
+    lastSentAt = 0;
+    syncConfig();
+  });
+
+
   function bootGame() {
     let attempts = 0;
 
@@ -344,6 +354,7 @@
       airTicks = 0;
       damageBoost = 1;
       lastHurtTime = 0;
+      installTravelHook(window.game);
     });
 
     installTravelHook(window.game);

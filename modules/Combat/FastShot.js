@@ -145,14 +145,6 @@
         }
       }
 
-      const player = window.game?.player;
-      const state = player && typeof window.XZ?.state === 'function'
-        ? window.XZ.state(player)
-        : null;
-
-      if (state && (!enabled || speed > 1)) {
-        state.next = 0;
-      }
     }
 
     bridge.onConfig(CHANNEL, (data) => {
@@ -163,6 +155,15 @@
       enabled = Boolean(data.enabled);
       speed = Math.max(1, Math.min(10, Math.round(Number(data.speed) || 1)));
       apply();
+
+      if (enabled && speed > 1) {
+        const player = window.game?.player;
+        const state = player && typeof window.XZ?.state === 'function' ? window.XZ.state(player) : null;
+
+        if (state) {
+          state.next = 0;
+        }
+      }
     });
 
     apply();

@@ -552,10 +552,39 @@
     }, PARENT_ORIGIN);
   }
 
+  let lastInputAt = 0;
+
+  function postInputState(now) {
+    if (window.parent === window || now - lastInputAt < 50) {
+      return;
+    }
+
+    lastInputAt = now;
+    const keys = game?.keys || {};
+    const playing = Boolean(game?.state === 'play' && !game?.ui?.screen);
+    const w = Boolean(keys.KeyW || keys.w || keys.ArrowUp);
+    const a = Boolean(keys.KeyA || keys.a || keys.ArrowLeft);
+    const s = Boolean(keys.KeyS || keys.s || keys.ArrowDown);
+    const d = Boolean(keys.KeyD || keys.d || keys.ArrowRight);
+    const space = Boolean(keys.Space || keys[' '] || keys.space);
+
+    window.parent.postMessage({
+      channel: 'solstice-input',
+      type: 'state',
+      w: playing && w,
+      a: playing && a,
+      s: playing && s,
+      d: playing && d,
+      space: playing && space,
+      playing
+    }, PARENT_ORIGIN);
+  }
+
   function runFrame(now) {
     const dt = lastFrameAt ? Math.min(0.1, Math.max(0, (now - lastFrameAt) / 1000)) : 1 / 60;
     lastFrameAt = now;
     postTargetHud(now);
+    postInputState(now);
 
     if (game?.state === 'play' && !game.ui?.screen) {
       for (const callback of frameCallbacks) {
