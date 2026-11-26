@@ -205,6 +205,32 @@
     let aimYaw = null;
     let aimPitch = null;
 
+    function isShotgun(args) {
+      const xz = window.XZ;
+      const held = window.game?.player?.inv?.held;
+
+      if (args) {
+        for (const value of args) {
+          if (typeof value !== 'string' || typeof xz?.gun !== 'function') {
+            continue;
+          }
+
+          const gun = xz.gun(value);
+
+          if (gun && Number(gun.pellets) > 1) {
+            return true;
+          }
+        }
+      }
+
+      if (held && typeof xz?.gun === 'function') {
+        const gun = xz.gun(held);
+        return Boolean(gun && Number(gun.pellets) > 1);
+      }
+
+      return false;
+    }
+
     function wrapMethod(object, name, marker, replacement) {
       if (!object || typeof object[name] !== 'function' || object[name][marker]) {
         return;
@@ -213,6 +239,10 @@
       const original = object[name];
       const wrapped = function wrappedPotatoNoRecoil(...args) {
         if (!enabled) {
+          return original.apply(this, args);
+        }
+
+        if (name === 'spreadNow' && isShotgun(args)) {
           return original.apply(this, args);
         }
 

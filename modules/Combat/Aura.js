@@ -1065,6 +1065,21 @@
         const originalSpread = xz.spreadNow;
         const wrappedSpread = function auraSpread(...args) {
           if (enabled && target && aimPoint && aimYaw !== null) {
+            const key = args[1];
+            const gun = key && typeof xz.gun === 'function' ? xz.gun(key) : null;
+
+            if (gun && Number(gun.pellets) > 1) {
+              const eye = playerOrigin(window.game?.player);
+              const distance = Math.hypot(
+                aimPoint.x - eye.x,
+                aimPoint.y - eye.y,
+                aimPoint.z - eye.z
+              );
+              const angle = Math.atan2(0.12, Math.max(1, distance)) * 180 / Math.PI;
+
+              return Math.max(0.05, Math.min(0.8, angle * 0.8));
+            }
+
             return 0;
           }
 
