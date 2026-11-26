@@ -223,9 +223,11 @@
     function installTravelHook(game) {
       const player = game?.player;
 
-      if (!player || typeof player.travel !== 'function' || player.travel.__solsticeFlyTravel) {
+      if (!player || typeof player.travel !== 'function' || player.__solsticeFlyTravelHooked) {
         return;
       }
+
+      player.__solsticeFlyTravelHooked = true;
 
       hookedPlayer = player;
       const originalTravel = player.travel;

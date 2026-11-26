@@ -249,9 +249,11 @@
     function installTravelHook(game) {
       const player = game?.player;
 
-      if (!player || typeof player.travel !== 'function' || player.travel.__solsticeSpeedTravel) {
+      if (!player || typeof player.travel !== 'function' || player.__solsticeSpeedTravelHooked) {
         return;
       }
+
+      player.__solsticeSpeedTravelHooked = true;
 
       const originalTravel = player.travel;
       const wrappedTravel = function speedTravel(fwd, strafe, speed, jump) {
