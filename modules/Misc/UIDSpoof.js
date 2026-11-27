@@ -291,19 +291,21 @@
       }
     }
 
+    const DEFAULT_AVATAR = 'https://i0.hdslb.com/bfs/face/member/noface.jpg';
+
     function profileIdentity() {
       try {
         if (typeof Account !== 'undefined' && Account.data) {
           return {
             nickname: Account.data.nick || Account.data.name || '',
-            avatar: Account.data.avatar || ''
+            avatar: Account.data.avatar || DEFAULT_AVATAR
           };
         }
       } catch {
 
       }
 
-      return { nickname: '', avatar: '' };
+      return { nickname: '', avatar: DEFAULT_AVATAR };
     }
 
     function clearBanState() {
