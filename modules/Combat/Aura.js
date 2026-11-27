@@ -1044,34 +1044,26 @@
 
       fireHooksInstalled = true;
 
-      if (typeof xz.sound === 'function' && !xz.sound.__solsticeAuraFire) {
-        const originalSound = xz.sound;
-        const wrappedSound = function auraFireSound(name, pos, ...args) {
+      if (typeof xz.fireSoundOf === 'function' && !xz.fireSoundOf.__solsticeAuraFireSound) {
+        const originalFireSoundOf = xz.fireSoundOf;
+        const wrappedFireSoundOf = function auraFireSoundOf(stack) {
           if (
             !multiVolley &&
             enabled &&
             target &&
             aimPoint &&
             renderAim &&
-            /^fire_/.test(String(name)) &&
-            Array.isArray(pos) &&
-            window.game?.player?.pos
+            window.game?.state === 'play' &&
+            stack === window.game?.player?.inv?.held
           ) {
-            const player = window.game.player;
-            const dx = pos[0] - player.pos[0];
-            const dy = pos[1] - player.pos[1];
-            const dz = pos[2] - player.pos[2];
-
-            if (dx * dx + dy * dy + dz * dz < 9) {
-              beginFireAim();
-            }
+            beginFireAim();
           }
 
-          return originalSound.call(this, name, pos, ...args);
+          return originalFireSoundOf.apply(this, arguments);
         };
 
-        Object.defineProperty(wrappedSound, '__solsticeAuraFire', { value: true });
-        xz.sound = wrappedSound;
+        Object.defineProperty(wrappedFireSoundOf, '__solsticeAuraFireSound', { value: true });
+        xz.fireSoundOf = wrappedFireSoundOf;
       }
 
       if (typeof xz.spreadNow === 'function' && !xz.spreadNow.__solsticeAuraSpread) {
