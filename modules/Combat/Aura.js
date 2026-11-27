@@ -57,7 +57,10 @@
     }
 
     const modeSetting = module.settings.find((entry) => entry.n === 'Mode');
-    const mode = modeSetting?.vals?.[modeSetting.v] === 'Single' ? 'Single' : 'Switch';
+    const modeValue = modeSetting?.vals?.[modeSetting.v];
+    const mode = potato
+      ? (['Single', 'Multi', 'Switch'].includes(modeValue) ? modeValue : 'Switch')
+      : (modeValue === 'Single' ? 'Single' : 'Switch');
     const range = Math.max(0, Math.min(120, Number(setting(module, 'Range', 20)) || 0));
     const config = {
       channel: CHANNEL,
@@ -111,6 +114,14 @@
   ];
 
   if (potato) {
+    const auraMode = settings.find((entry) => entry.n === 'Mode');
+
+    if (auraMode) {
+      auraMode.d = 'Single stays on one target; Multi fires one shot at every target in range; Switch cycles after each attack.';
+      auraMode.v = 2;
+      auraMode.vals = ['Single', 'Multi', 'Switch'];
+    }
+
     settings.push({
       t: 'b',
       n: 'Attack through walls',
@@ -818,6 +829,7 @@
     let aimYaw = null;
     let aimPitch = null;
     let aimStamp = 0;
+    let multiVolley = false;
     let originalGetBlock = null;
     let propsPlayer = null;
     let fireHooksInstalled = false;
@@ -967,7 +979,7 @@
     }
 
     function beginFireAim() {
-      if (!renderAim || !aimPoint) {
+      if (multiVolley || !renderAim || !aimPoint) {
         return;
       }
 
@@ -1036,6 +1048,7 @@
         const originalSound = xz.sound;
         const wrappedSound = function auraFireSound(name, pos, ...args) {
           if (
+            !multiVolley &&
             enabled &&
             target &&
             aimPoint &&
@@ -1095,7 +1108,108 @@
         try {
           return originalFired?.apply(this, arguments);
         } finally {
-          if (player === game?.player) {
+          if (player !== game?.player) {
+            return;
+          }
+
+          clearFireAim();
+          setFireHeld(false);
+
+          const state = typeof xz.state === 'function' ? xz.state(player) : null;
+
+          if (multiVolley) {
+            if (state) {
+              state.next = 1e9;
+              state.edge = false;
+            }
+
+            return;
+          }
+
+          if (config.mode !== 'Multi' || !enabled || !target) {
+            return;
+          }
+
+          const gun = typeof xz.gun === 'function' ? xz.gun(player.inv?.held) : null;
+          const context = bridge.getContext();
+
+          if (!context) {
+            return;
+          }
+
+          const eye = playerOrigin(context.player);
+          const fired = target;
+          const seen = new Set([fired]);
+          const candidates = [];
+
+          for (const actor of context.actors) {
+            if (seen.has(actor)) {
+              continue;
+            }
+
+            const candidate = validTarget(context, actor, eye);
+
+            if (candidate) {
+              seen.add(actor);
+              candidates.push(candidate);
+            }
+          }
+
+          candidates.sort((left, right) => left.distance - right.distance);
+
+          multiVolley = true;
+
+          try {
+            for (const candidate of candidates) {
+              if (gun && typeof xz.rounds === 'function' && xz.rounds(player.inv.held) <= 0) {
+                break;
+              }
+
+              const angles = targetAngles(eye, candidate.point);
+              aimYaw = angles.yaw;
+              aimPitch = angles.pitch;
+
+              if (state) {
+                state.next = 0;
+              }
+
+              const wasAuto = gun ? gun.auto : false;
+              let autoChanged = false;
+
+              try {
+                if (gun) {
+                  gun.auto = false;
+                  autoChanged = true;
+                }
+
+                xz.trigger(game, true);
+                xz.playerTick(game);
+              } finally {
+                if (autoChanged) {
+                  gun.auto = wasAuto;
+                }
+
+                xz.trigger(game, false);
+              }
+            }
+
+            if (state) {
+              state.next = 1e9;
+              state.edge = false;
+            }
+
+            const rate = Math.max(0.01, Number(gun?.rate) || 1);
+
+            queueMicrotask(() => {
+              const nextState = typeof xz.state === 'function' ? xz.state(player) : null;
+
+              if (nextState) {
+                nextState.next = (Number(game?.tickCount) || 0) + 20 / rate;
+                nextState.edge = false;
+              }
+            });
+          } finally {
+            multiVolley = false;
             clearFireAim();
             setFireHeld(false);
           }
@@ -1154,9 +1268,14 @@
       }
 
       const range = Number(data.range);
+      const mode = ['Single', 'Multi', 'Switch'].includes(data.mode) ? data.mode : 'Switch';
+
+      if (config.mode !== mode && mode !== 'Single') {
+        singleTarget = null;
+      }
 
       config = {
-        mode: data.mode === 'Single' ? 'Single' : 'Switch',
+        mode,
         range: Number.isFinite(range) ? bridge.clamp(range, 0, 120) : 20,
         attackThroughWalls: data.attackThroughWalls !== false
       };
