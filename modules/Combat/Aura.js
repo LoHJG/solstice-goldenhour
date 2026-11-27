@@ -833,6 +833,9 @@
     let originalGetBlock = null;
     let propsPlayer = null;
     let fireHooksInstalled = false;
+    let auraMouseForced = false;
+    let auraMouseSaved = false;
+    let auraMouseGame = null;
     let triggerHookInstalled = false;
     let renderHookInstalled = false;
 
@@ -1254,6 +1257,41 @@
       }
     }
 
+    function setAuraMouseHeld(wanted) {
+      const game = window.game;
+
+      if (!game || !Array.isArray(game.mouseBtn)) {
+        return;
+      }
+
+      if (!wanted) {
+        if (auraMouseForced) {
+          if (auraMouseGame?.mouseBtn) {
+            auraMouseGame.mouseBtn[0] = auraMouseSaved;
+          }
+
+          auraMouseForced = false;
+          auraMouseGame = null;
+        }
+
+        return;
+      }
+
+      if (auraMouseForced && auraMouseGame === game) {
+        game.mouseBtn[0] = true;
+        return;
+      }
+
+      if (auraMouseForced && auraMouseGame?.mouseBtn) {
+        auraMouseGame.mouseBtn[0] = auraMouseSaved;
+      }
+
+      auraMouseGame = game;
+      auraMouseSaved = Boolean(game.mouseBtn[0]);
+      auraMouseForced = true;
+      game.mouseBtn[0] = true;
+    }
+
     bridge.onConfig(CHANNEL, (data) => {
       if (data.type !== 'config' || data.module !== 'aura') {
         return;
@@ -1279,6 +1317,7 @@
         renderAim = null;
         aimPoint = null;
         window.SolsticeAuraTarget = null;
+        setAuraMouseHeld(false);
         clearFireAim();
         setFireHeld(false);
       }
@@ -1291,6 +1330,7 @@
         renderAim = null;
         aimPoint = null;
         window.SolsticeAuraTarget = null;
+        setAuraMouseHeld(false);
         setFireHeld(false);
         return;
       }
@@ -1303,6 +1343,7 @@
         renderAim = null;
         aimPoint = null;
         window.SolsticeAuraTarget = null;
+        setAuraMouseHeld(false);
         setFireHeld(false);
         return;
       }
@@ -1315,6 +1356,7 @@
         renderAim = null;
         aimPoint = null;
         window.SolsticeAuraTarget = null;
+        setAuraMouseHeld(false);
         setFireHeld(false);
 
         if (config.mode === 'Single') {
@@ -1343,6 +1385,7 @@
       installProps(window.game?.player);
       installTriggerHook(window.game);
       installFireHooks(window.XZ);
+      setAuraMouseHeld(true);
     });
   }
 })();
