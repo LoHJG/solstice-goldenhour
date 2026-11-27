@@ -199,9 +199,23 @@
         return;
       }
 
+      if (typeof xz.killSoundOf === 'function' && !xz.killSoundOf.__solsticeKillSoundOf) {
+        const originalKillSoundOf = xz.killSoundOf;
+        const wrappedKillSoundOf = function killSoundOfXZ(...args) {
+          if (enabled) {
+            return null;
+          }
+
+          return originalKillSoundOf.apply(this, args);
+        };
+
+        Object.defineProperty(wrappedKillSoundOf, '__solsticeKillSoundOf', { value: true });
+        xz.killSoundOf = wrappedKillSoundOf;
+      }
+
       const originalSound = xz.sound;
       const wrappedSound = function killSoundXZ(name, ...args) {
-        if (enabled && /^kill_\d+$/.test(String(name))) {
+        if (enabled && /^(?:kill_|bls_kill_)\d+$/.test(String(name))) {
           sendKill();
           return null;
         }
