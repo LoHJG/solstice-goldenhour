@@ -371,6 +371,11 @@
     let originalCheckUnlocks = null;
     let originalAllUnlocked = null;
     let previousUnlocks = null;
+    let previousOwned = null;
+    let previousSuper;
+    let skinObject = null;
+    let originalSkinOwns = null;
+    let originalViewDescriptor = null;
     let unlockedToken = '';
     let lastAttempt = 0;
 
@@ -389,6 +394,46 @@
         return;
       }
 
+      const rules = self.PotatoSkinRules;
+      const owned = new Set(Array.isArray(acc.data.owned) ? acc.data.owned : []);
+
+      try {
+        for (const item of (typeof Cosmetics !== 'undefined' ? Cosmetics.LIST : [])) {
+          if (item?.id) {
+            owned.add(item.id);
+          }
+        }
+      } catch {
+
+      }
+
+      try {
+        for (const cape of (typeof Capes !== 'undefined' ? Capes.list : [])) {
+          if (cape?.id) {
+            owned.add('cape:' + cape.id);
+          }
+        }
+      } catch {
+
+      }
+
+      if (rules) {
+        for (const id of rules.IDS || []) owned.add(id);
+        for (const id of rules.XZP_IDS || []) owned.add(id);
+
+        for (const gun of rules.BLOSSOM_GUNS || []) {
+          owned.add('blossom:' + gun);
+        }
+
+        for (const reward of rules.BEV_RW || []) {
+          if (reward?.id) {
+            owned.add(reward.id);
+          }
+        }
+      }
+
+      acc.data.owned = [...owned];
+      acc.data.super = true;
       acc.data.unlocks = {
         ...(acc.data.unlocks || {}),
         follow: true,
@@ -396,6 +441,88 @@
         ai: true
       };
       acc.save?.();
+    }
+
+    function unlockSkinView(skins) {
+      if (!skins || skins.__solsticeUnlockView || skinObject === skins) {
+        return;
+      }
+
+      const rules = self.PotatoSkinRules;
+
+      if (!rules) {
+        return;
+      }
+
+      skinObject = skins;
+      originalSkinOwns = skins.owns;
+      originalViewDescriptor = Object.getOwnPropertyDescriptor(skins, 'v');
+
+      const owns = function ownsUnlocked(id) {
+        if (enabled) {
+          return true;
+        }
+
+        return originalSkinOwns.call(this, id);
+      };
+
+      Object.defineProperty(owns, '__solsticeUnlockView', { value: true });
+      skins.owns = owns;
+
+      const originalGet = originalViewDescriptor?.get;
+
+      try {
+      Object.defineProperty(skins, 'v', {
+        configurable: true,
+        get() {
+          const base = originalGet ? originalGet.call(this) : {};
+
+          if (!enabled) {
+            return base;
+          }
+
+          const allOwn = [...new Set([
+            ...(rules.IDS || []),
+            ...(rules.XZP_IDS || []),
+            ...(rules.BLOSSOM_GUNS || []).map((gun) => 'blossom:' + gun),
+            ...(rules.BEV_RW || []).map((reward) => reward.id)
+          ])];
+          const knives = [...new Set([...(rules.KNIVES || []), ...(rules.BEV_RW || [])
+            .map((reward) => reward.id)
+            .filter((id) => String(id).startsWith('knife_'))])];
+          const paints = rules.PAINTS || [];
+          const kp = Object.fromEntries(knives.map((knife) => [knife, paints.slice()]));
+          const rewards = (rules.BEV_RW || []).map((reward) => ({
+            id: reward.id,
+            k: reward.k,
+            n: reward.n,
+            have: reward.n,
+            got: true,
+            done: true,
+            can: false
+          }));
+
+          return {
+            ...base,
+            own: [...new Set([...(base.own || []), ...allOwn])],
+            knives: [...new Set([...(base.knives || []), ...knives])],
+            kp: { ...(base.kp || {}), ...kp },
+            sets: [...new Set([...(base.sets || []), ...Object.keys(rules.SETS || {})])],
+            ev: base.ev
+              ? { ...base.ev, un: true, rw: rewards, can: 0 }
+              : base.ev
+          };
+        }
+      });
+      } catch {
+
+      }
+
+      try {
+        Object.defineProperty(skins, '__solsticeUnlockView', { value: true });
+      } catch {
+
+      }
     }
 
     function installPatches() {
@@ -406,6 +533,7 @@
       }
 
       localUnlock();
+      unlockSkinView(window.XZ?.skins);
 
       if (typeof acc.has === 'function' && !acc.has.__solsticePotatoUnlock) {
         originalHas = acc.has;
@@ -468,8 +596,45 @@
 
       if (previousUnlocks && acc.data) {
         acc.data.unlocks = previousUnlocks;
+      }
+
+      if (acc.data) {
+        if (previousOwned === null) {
+          delete acc.data.owned;
+        } else {
+          acc.data.owned = previousOwned;
+        }
+
+        if (previousSuper === undefined) {
+          delete acc.data.super;
+        } else {
+          acc.data.super = previousSuper;
+        }
+
         acc.save?.();
       }
+
+      if (skinObject && originalSkinOwns) {
+        skinObject.owns = originalSkinOwns;
+      }
+
+      if (skinObject && originalViewDescriptor) {
+        Object.defineProperty(skinObject, 'v', originalViewDescriptor);
+      }
+
+      if (skinObject) {
+        try {
+          delete skinObject.__solsticeUnlockView;
+        } catch {
+
+        }
+      }
+
+      skinObject = null;
+      originalSkinOwns = null;
+      originalViewDescriptor = null;
+      previousOwned = null;
+      previousSuper = undefined;
 
       originalHas = null;
       originalCheckUnlocks = null;
@@ -560,6 +725,8 @@
       if (next) {
         const acc = account();
         previousUnlocks = acc?.data ? { ...(acc.data.unlocks || {}) } : null;
+        previousOwned = acc?.data && Array.isArray(acc.data.owned) ? acc.data.owned.slice() : null;
+        previousSuper = acc?.data ? acc.data.super : undefined;
         enabled = true;
         installPatches();
         unlockServer();

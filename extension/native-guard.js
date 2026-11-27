@@ -6,10 +6,11 @@
   }
 
   const nativeToString = Function.prototype.toString;
+  const nativeOwnNames = Object.getOwnPropertyNames;
 
   const guardedToString = function toString() {
     try {
-      const names = Object.getOwnPropertyNames(this);
+      const names = nativeOwnNames(this);
 
       for (const name of names) {
         if (name.startsWith('__solstice')) {
@@ -42,6 +43,15 @@
 
     const base = xz.onFired;
     const wrappers = [base];
+
+    try {
+      Object.defineProperty(window, '__solsticeOnFiredBase', {
+        configurable: true,
+        value: base
+      });
+    } catch {
+
+    }
     let dispatching = false;
     let stack = [];
 

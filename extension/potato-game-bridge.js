@@ -743,6 +743,86 @@
     }
 
     const NativeWebSocket = WebSocket;
+    const cleanXz = new Map();
+    let cleanXzObject = null;
+
+    function captureCleanXz() {
+      const xz = window.XZ;
+
+      if (!xz) {
+        return;
+      }
+
+      if (cleanXzObject !== xz) {
+        cleanXzObject = xz;
+        cleanXz.clear();
+
+        for (const key of Object.getOwnPropertyNames(xz)) {
+          let value;
+
+          try {
+            value = xz[key];
+          } catch {
+            continue;
+          }
+
+          if (typeof value === 'function') {
+            cleanXz.set(key, value);
+          }
+        }
+      }
+
+      if (typeof window.__solsticeOnFiredBase === 'function') {
+        cleanXz.set('onFired', window.__solsticeOnFiredBase);
+      }
+    }
+
+    function withCleanXzFunctions() {
+      const xz = window.XZ;
+
+      if (!xz || xz !== cleanXzObject) {
+        return () => {};
+      }
+
+      const saved = [];
+
+      for (const [key, clean] of cleanXz) {
+        let descriptor;
+
+        try {
+          descriptor = Object.getOwnPropertyDescriptor(xz, key);
+        } catch {
+          continue;
+        }
+
+        if (!descriptor || descriptor.value === clean) {
+          continue;
+        }
+
+        try {
+          Object.defineProperty(xz, key, {
+            configurable: true,
+            writable: true,
+            value: clean
+          });
+          saved.push([key, descriptor]);
+        } catch {
+
+        }
+      }
+
+      return () => {
+        for (let index = saved.length - 1; index >= 0; index--) {
+          const [key, descriptor] = saved[index];
+
+          try {
+            Object.defineProperty(xz, key, descriptor);
+          } catch {
+
+          }
+        }
+      };
+    }
 
     function isDetectionKey(key) {
       return typeof key === 'string' && /^(?:pre|n|ref|mark|dom|xz|prop|data|cheat|dev):/.test(key);
@@ -763,6 +843,47 @@
     function withCleanFindings(handler, thisArg, event) {
       const nativeSlice = Array.prototype.slice;
       const nativeJoin = Array.prototype.join;
+      const nativeOwnNames = Object.getOwnPropertyNames;
+      const restoreXz = withCleanXzFunctions();
+      const hiddenDom = [];
+      const hiddenStorage = [];
+      const solsticeName = /solstice/i;
+
+      try {
+        for (const element of document.querySelectorAll('[id*="solstice" i], [class*="solstice" i]')) {
+          const parent = element.parentNode;
+
+          if (!parent || !element.isConnected) {
+            continue;
+          }
+
+          hiddenDom.push({ element, parent, next: element.nextSibling });
+          parent.removeChild(element);
+        }
+      } catch {
+
+      }
+
+      try {
+        for (let index = 0; index < localStorage.length; index++) {
+          const key = localStorage.key(index);
+
+          if (!key || !solsticeName.test(key)) {
+            continue;
+          }
+
+          hiddenStorage.push([key, localStorage.getItem(key)]);
+          localStorage.removeItem(key);
+          index--;
+        }
+      } catch {
+
+      }
+
+      Object.getOwnPropertyNames = function getOwnPropertyNames(target) {
+        return nativeOwnNames.call(Object, target)
+          .filter((name) => typeof name !== 'string' || !solsticeName.test(name));
+      };
 
       Array.prototype.slice = function slice(start, end) {
         const result = nativeSlice.call(this, start, end);
@@ -787,6 +908,29 @@
       } finally {
         Array.prototype.slice = nativeSlice;
         Array.prototype.join = nativeJoin;
+        Object.getOwnPropertyNames = nativeOwnNames;
+
+        for (const { element, parent, next } of hiddenDom) {
+          try {
+            parent.insertBefore(element, next && next.parentNode === parent ? next : null);
+          } catch {
+
+          }
+        }
+
+        for (const [key, value] of hiddenStorage) {
+          try {
+            if (value === null) {
+              localStorage.removeItem(key);
+            } else {
+              localStorage.setItem(key, value);
+            }
+          } catch {
+
+          }
+        }
+
+        restoreXz();
       }
     }
 
@@ -830,17 +974,10 @@
       Object.defineProperty(socket, 'send', {
         configurable: true,
         value: function send(data) {
-          if (typeof data === 'string' && (data.includes('"ic"') || data.includes('"ica"'))) {
+          if (typeof data === 'string' && data.includes('"ic"')) {
             try {
-              const packet = JSON.parse(data);
-
-              if (packet && packet.t === 'ic') {
+              if (JSON.parse(data)?.t === 'ic') {
                 return undefined;
-              }
-
-              if (packet && packet.t === 'ica') {
-                packet.k = [];
-                data = JSON.stringify(packet);
               }
             } catch {
 
@@ -870,6 +1007,8 @@
 
     Object.defineProperty(PatchedWebSocket, '__solsticeIcSink', { value: true });
     window.WebSocket = PatchedWebSocket;
+    captureCleanXz();
+    setInterval(captureCleanXz, 5);
   }
 
   installAntiCheatSink();
