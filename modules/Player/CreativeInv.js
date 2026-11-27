@@ -131,6 +131,11 @@
     let retryTimer = 0;
     let dropHookedGame = null;
     let renderHookedGame = null;
+    let xzeCreativeInstalled = false;
+    let xzeCreativeKeys = [];
+    let xzeIconIds = new Set();
+    let xzeIconHooked = false;
+    const xzeIconCache = new Map();
 
     function game() {
       try {
@@ -193,6 +198,195 @@
       }
     }
 
+    function installXzeIcons() {
+      if (
+        xzeIconHooked ||
+        typeof UI === 'undefined' ||
+        !UI.prototype ||
+        typeof UI.prototype.itemIcon !== 'function'
+      ) {
+        return;
+      }
+
+      const original = UI.prototype.itemIcon;
+
+      UI.prototype.itemIcon = function creativeInvItemIcon(id) {
+        if (!xzeIconIds.has(id)) {
+          return original.call(this, id);
+        }
+
+        const item = typeof ITEMS !== 'undefined' ? ITEMS[id] : null;
+        let key = item && item.key;
+
+        if (!key) {
+          return original.call(this, id);
+        }
+
+        if (key.startsWith('xzext:')) {
+          key = key.slice(7);
+        }
+
+        let url = '';
+
+        try {
+          url = window.XZE && typeof window.XZE.iconUrl === 'function'
+            ? window.XZE.iconUrl(key)
+            : '';
+        } catch {
+          url = '';
+        }
+
+        if (!url) {
+          return original.call(this, id);
+        }
+
+        let image = xzeIconCache.get(url);
+
+        if (!image) {
+          image = new Image();
+          image.src = url;
+          xzeIconCache.set(url, image);
+        }
+
+        if (!image.complete || !image.naturalWidth) {
+          return original.call(this, id);
+        }
+
+        return image;
+      };
+
+      xzeIconHooked = true;
+    }
+
+    function installXzeCreative() {
+      if (xzeCreativeInstalled) {
+        return;
+      }
+
+      if (
+        typeof ITEM_KEY === 'undefined' ||
+        typeof ITEMS === 'undefined' ||
+        typeof CREATIVE_TABS === 'undefined'
+      ) {
+        return;
+      }
+
+      const list = window.XZE_ITEMS;
+
+      if (!Array.isArray(list) || !list.length) {
+        return;
+      }
+
+      const texOf = (key) => {
+        const id = ITEM_KEY[key];
+        const item = id === undefined ? null : ITEMS[id];
+        return item && item.tex;
+      };
+
+      const fallbackByCat = {
+        valuable: 'gold_ingot',
+        intel: 'paper',
+        elec: 'redstone',
+        medv: 'apple',
+        heal: 'apple',
+        tool: 'iron_ingot',
+        throw: 'snowball',
+        ammo: 'arrow',
+        armor: 'iron_chestplate',
+        helmet: 'iron_helmet',
+        bag: 'leather',
+        key: 'tripwire_hook'
+      };
+
+      const keys = [];
+
+      for (const source of list) {
+        const original = source && source.id;
+
+        if (!original) {
+          continue;
+        }
+
+        let key = original;
+
+        if (ITEM_KEY[key] !== undefined) {
+          key = 'xzext:' + original;
+        }
+
+        if (ITEM_KEY[key] !== undefined) {
+          continue;
+        }
+
+        const stackDefault = ['armor', 'helmet', 'bag'].includes(source.cat) ? 1 : 64;
+        const stack = Math.max(1, Math.min(64, Number(source.stack) || stackDefault));
+        const fallback = fallbackByCat[source.cat] || 'paper';
+        const tex = texOf(fallback) || texOf('paper');
+        const options = { stack, tex };
+
+        if (source.dur) {
+          options.durability = Math.max(1, Number(source.dur) || 1);
+        }
+
+        let def = null;
+
+        try {
+          if (typeof defItem === 'function') {
+            def = defItem(key, source.cn || original, options);
+          }
+        } catch {
+
+        }
+
+        if (!def && typeof ITEMS !== 'undefined' && ITEM_KEY) {
+          let id = 1;
+
+          for (let index = 0; index < ITEMS.length; index++) {
+            if (ITEMS[index]) {
+              id = index + 1;
+            }
+          }
+
+          def = {
+            id,
+            key,
+            cn: source.cn || original,
+            stack: options.stack,
+            tex: options.tex
+          };
+
+          ITEMS[id] = def;
+          ITEM_KEY[key] = id;
+        }
+
+        if (!def) {
+          continue;
+        }
+
+        def.tab = 'xzext';
+        xzeIconIds.add(def.id);
+        keys.push(key);
+      }
+
+      if (!keys.length) {
+        return;
+      }
+
+      xzeCreativeKeys = keys;
+
+      if (!CREATIVE_TABS.some((tab) => tab && tab.id === 'xzext')) {
+        CREATIVE_TABS.push({
+          id: 'xzext',
+          name: '搜打撤',
+          icon: 'chest',
+          get items() {
+            return xzeCreativeKeys.slice();
+          }
+        });
+      }
+
+      xzeCreativeInstalled = true;
+    }
+
     function inRaid(g) {
       const xze = window.XZE;
 
@@ -215,7 +409,11 @@
       const xze = window.XZE;
       const items = typeof ITEMS !== 'undefined' ? ITEMS : null;
       const entry = items && stack ? items[stack.id] : null;
-      const key = entry && entry.key;
+      let key = entry && entry.key;
+
+      if (key && key.startsWith('xzext:')) {
+        key = key.slice(7);
+      }
 
       if (!xze || !key || typeof xze.def !== 'function' || typeof xze.make !== 'function') {
         return null;
@@ -288,7 +486,13 @@
             return found;
           }
 
-          const item = key && byKey.get(key);
+          let lookup = key;
+
+          if (typeof lookup === 'string' && lookup.startsWith('xzext:')) {
+            lookup = lookup.slice(7);
+          }
+
+          const item = lookup && byKey.get(lookup);
 
           if (!item) {
             return null;
@@ -391,7 +595,7 @@
       const originalDrop = g.dropFromPlayer;
 
       g.dropFromPlayer = function creativeInvDrop(stack, ...args) {
-        if (isCreative(g.ui && g.ui.screen) && ensureDropState()) {
+        if (isCreative(g.ui && g.ui.screen) && inRaid(g) && ensureDropState()) {
           const items = toXzeItems(stack);
 
           if (items && items.length) {
@@ -469,6 +673,8 @@
         return;
       }
 
+      installXzeCreative();
+      installXzeIcons();
       hookDrop(g);
       hookRender(g);
       opening = true;
@@ -541,6 +747,8 @@
       const g = game();
 
       if (g) {
+        installXzeCreative();
+        installXzeIcons();
         hookDrop(g);
         hookRender(g);
       }
