@@ -1031,6 +1031,18 @@
         ) {
           try {
             xz.trigger(this, true);
+
+            const player = this.player;
+            const gun = typeof xz.gun === 'function'
+              ? xz.gun(player?.inv?.held)
+              : null;
+            const state = typeof xz.state === 'function'
+              ? xz.state(player)
+              : null;
+
+            if (!multiVolley && gun && !gun.auto && state) {
+              state.edge = true;
+            }
           } catch {
 
           }
@@ -1111,6 +1123,11 @@
           setFireHeld(false);
 
           const state = typeof xz.state === 'function' ? xz.state(player) : null;
+          const gun = typeof xz.gun === 'function' ? xz.gun(player.inv?.held) : null;
+
+          if (!multiVolley && enabled && target && gun && !gun.auto && state) {
+            state.edge = true;
+          }
 
           if (multiVolley) {
             if (state) {
@@ -1125,7 +1142,6 @@
             return;
           }
 
-          const gun = typeof xz.gun === 'function' ? xz.gun(player.inv?.held) : null;
           const context = bridge.getContext();
 
           if (!context) {
