@@ -293,6 +293,22 @@
         }
 
         const e = bot.e;
+
+        if (!bot.__solsticeFunnyOriginal) {
+          bot.__solsticeFunnyOriginal = {
+            health: Number(e.health),
+            maxHealth: Number(e.maxHealth),
+            invisible: !!e.invisible,
+            botDead: !!bot.dead,
+            tok: bot.tok,
+            next: bot.next,
+            mag: bot.mag,
+            relT: bot.relT,
+            throwT: bot.throwT,
+            nades: bot.nades ? { ...bot.nades } : null
+          };
+        }
+
         const phase = bot.__solsticeFunnyPhase ?? (bot.__solsticeFunnyPhase = Math.random() * Math.PI * 2);
         const speed = bot.__solsticeFunnySpeed ?? (bot.__solsticeFunnySpeed = 0.45 + Math.random() * 0.65);
         const radius = bot.__solsticeFunnyRadius ?? (bot.__solsticeFunnyRadius = 2.5 + Math.random() * 2.5);
@@ -344,6 +360,52 @@
         e.headYaw = yaw;
         e.pitch = pitch;
         e.netPitch = pitch;
+      }
+    }
+
+    function restoreFunnyAI() {
+      const AI = xze()?.AI;
+
+      if (!AI || !Array.isArray(AI.bots)) {
+        return;
+      }
+
+      for (const bot of AI.bots) {
+        const original = bot?.__solsticeFunnyOriginal;
+        const e = bot?.e;
+
+        if (!original || !e) {
+          continue;
+        }
+
+        const maxHealth = Number.isFinite(original.maxHealth) && original.maxHealth > 0
+          ? original.maxHealth
+          : 100;
+        const health = Number.isFinite(original.health) && original.health > 0
+          ? Math.min(original.health, maxHealth)
+          : maxHealth;
+
+        e.maxHealth = maxHealth;
+        e.health = Math.max(1, health);
+        e.dead = false;
+        e.deathTime = 0;
+        e.invisible = original.invisible;
+        bot.dead = false;
+        bot.sentDead = false;
+        bot.tok = original.tok;
+        bot.next = Number.isFinite(original.next) ? original.next : 0;
+        bot.mag = original.mag;
+        bot.relT = Number.isFinite(original.relT) ? original.relT : 0;
+        bot.throwT = Number.isFinite(original.throwT) ? original.throwT : 0;
+
+        if (bot.nades && original.nades) {
+          Object.assign(bot.nades, original.nades);
+        }
+
+        delete bot.__solsticeFunnyOriginal;
+        delete bot.__solsticeFunnyPhase;
+        delete bot.__solsticeFunnySpeed;
+        delete bot.__solsticeFunnyRadius;
       }
     }
 
@@ -584,11 +646,17 @@
 
       enabled = Boolean(data.enabled);
       range = Math.max(1, Math.min(1000, Math.round(Number(data.range) || DEFAULT_RANGE)));
+      const wasFunny = funnyAIEnabled;
       killAIEnabled = data.killAI !== false;
       jailCellEnabled = data.jailCell !== false;
       funnyAIEnabled = data.funnyAI === true;
 
+      if (wasFunny && !funnyAIEnabled) {
+        restoreFunnyAI();
+      }
+
       if (!enabled) {
+        restoreFunnyAI();
         lastCage.clear();
         publishTestState();
       } else if (!jailCellEnabled) {
