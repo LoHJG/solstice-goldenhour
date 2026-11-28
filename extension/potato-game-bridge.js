@@ -528,7 +528,8 @@
 
     const health = Number(actor.health);
     const maxHealth = Number(actor.maxHealth) || 20;
-    const healthKnown = Number.isFinite(Number(entity?.peer?.state?.health)) || (entity?.type !== 'player' && Number.isFinite(Number(entity?.health)));
+    const healthKnown = Number.isFinite(Number(entity?.peer?.state?.health)) ||
+      ((entity?.type !== 'player' || entity?.xzDuel === true) && Number.isFinite(Number(entity?.health)));
     const localHealth = Number(game?.player?.health) || 0;
 
     window.parent.postMessage({
