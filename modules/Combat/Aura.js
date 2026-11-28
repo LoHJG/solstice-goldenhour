@@ -1297,15 +1297,21 @@
 
         const yaw = this.player.yaw;
         const pitch = this.player.pitch;
+        const bodyYaw = this.player.bodyYaw;
+        const prevBodyYaw = this.player.prevBodyYaw;
 
         this.player.yaw = renderAim.yaw;
         this.player.pitch = renderAim.pitch;
+        this.player.bodyYaw = renderAim.yaw;
+        this.player.prevBodyYaw = renderAim.yaw;
 
         try {
           return originalDrawMob.call(this, entity, ...args);
         } finally {
           this.player.yaw = yaw;
           this.player.pitch = pitch;
+          this.player.bodyYaw = bodyYaw;
+          this.player.prevBodyYaw = prevBodyYaw;
         }
       };
     }

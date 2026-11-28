@@ -139,6 +139,8 @@
     let enemyStrokeStyle = 'rgba(255, 80, 160, 1)';
     const FRIEND_FILL_STYLE = 'rgba(0, 255, 0, 0.25)';
     const FRIEND_STROKE_STYLE = 'rgba(0, 255, 0, 1)';
+    const HOST_FILL_STYLE = 'rgba(255, 0, 0, 0.25)';
+    const HOST_STROKE_STYLE = 'rgba(255, 0, 0, 1)';
     const corners = Array.from({ length: 8 }, () => [0, 0, 0]);
     const projected = Array.from({ length: 8 }, () => [0, 0]);
 
@@ -284,6 +286,15 @@
         return;
       }
 
+      const testState = window.SolsticeTestState;
+      const testHostEntity = testState?.enabled && testState.active && !testState.isHost
+        ? testState.hostEntity
+        : null;
+      const testHostPid = testState?.enabled && testState.active && !testState.isHost &&
+        testState.hostPid != null && Number(testState.hostPid) >= 0
+        ? String(testState.hostPid)
+        : null;
+
       const point = player.pos.clone();
       const forward = player.pos.clone();
       camera.getWorldDirection(forward);
@@ -300,6 +311,12 @@
 
         const isSelf = actor === player;
         const isFriend = !isSelf && Number(actor.team) === Number(player.team);
+        const isTestHost = Boolean(
+          isSelf
+            ? false
+            : testHostEntity && actor._entity === testHostEntity ||
+              testHostPid && actor._entity?.xzeNet != null && String(actor._entity.xzeNet) === testHostPid
+        );
 
         if (isSelf && !config.local) {
           continue;
@@ -381,11 +398,19 @@
         overlayCtx.closePath();
 
         if (config.filled) {
-          overlayCtx.fillStyle = isFriend ? FRIEND_FILL_STYLE : enemyFillStyle;
+          overlayCtx.fillStyle = isTestHost
+            ? HOST_FILL_STYLE
+            : isFriend
+              ? FRIEND_FILL_STYLE
+              : enemyFillStyle;
           overlayCtx.fill();
         }
 
-        overlayCtx.strokeStyle = isFriend ? FRIEND_STROKE_STYLE : enemyStrokeStyle;
+        overlayCtx.strokeStyle = isTestHost
+          ? HOST_STROKE_STYLE
+          : isFriend
+            ? FRIEND_STROKE_STYLE
+            : enemyStrokeStyle;
         overlayCtx.stroke();
       }
     }
