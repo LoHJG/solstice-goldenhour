@@ -257,7 +257,41 @@
       }
     }
 
+    function publishTestState() {
+      const z = xze();
+      const R = z?.R;
+      const net = R?.net;
+      let active = false;
+      let isHost = false;
+      let hostPid = null;
+      let hostEntity = null;
+
+      if (enabled && z && R?.st === 'play' && net) {
+        active = true;
+        hostPid = net.host;
+        isHost = net.me != null && String(hostPid) === String(net.me);
+
+        if (!isHost && net.remotes && typeof net.remotes.get === 'function') {
+          const remote = net.remotes.get(hostPid) || net.remotes.get(Number(hostPid));
+          hostEntity = remote?.e || null;
+        }
+      }
+
+      window.SolsticeTestState = {
+        enabled,
+        active,
+        isHost,
+        hostPid,
+        hostEntity
+      };
+    }
+
     function tick() {
+      publishTestState();
+
+      if (!enabled) {
+        return;
+      }
       if (!enabled) {
         return;
       }
@@ -310,6 +344,10 @@
 
       enabled = Boolean(data.enabled);
       range = Math.max(1, Math.min(10, Math.round(Number(data.range) || DEFAULT_RANGE)));
+
+      if (!enabled) {
+        publishTestState();
+      }
 
     });
   }
