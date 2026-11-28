@@ -35,15 +35,21 @@
       return;
     }
 
-    const rangeSetting = module.settings.find((setting) => setting.n === 'Range');
+    const rangeSetting = module.settings.find((setting) => setting.n === 'Jail range');
     const range = Math.max(1, Math.min(1000, Math.round(Number(rangeSetting?.v) || DEFAULT_RANGE)));
+    const killAI = Boolean(module.settings.find((setting) => setting.n === 'Kill AI')?.v ?? 1);
+    const jailCell = Boolean(module.settings.find((setting) => setting.n === 'Jail cell')?.v ?? 1);
+    const funnyAI = Boolean(module.settings.find((setting) => setting.n === 'Funny AI')?.v ?? 0);
     const now = performance.now();
     const config = {
       channel: CHANNEL,
       type: 'config',
       module: 'test',
       enabled: Boolean(module.on),
-      range
+      range,
+      killAI,
+      jailCell,
+      funnyAI
     };
     const key = JSON.stringify(config);
 
@@ -65,14 +71,32 @@
   register({
     game: 'potatoepic',
     name: 'TEST',
-    desc: 'Host-only iron cage around nearby players; kills all AI while hosting.',
+    desc: 'TEST',
     cat: 'Misc',
     nm: { l: 'test', ls: 'test', n: 'TEST', ns: 'TEST' },
-    disp: 'Range',
+    disp: 'Jail range',
     settings: [
       {
+        t: 'b',
+        n: 'Kill AI',
+        d: 'Kills all AI while hosting.',
+        v: 1
+      },
+      {
+        t: 'b',
+        n: 'Funny AI',
+        d: 'Makes AI invincible and spins them around the host in 3D.',
+        v: 0
+      },
+      {
+        t: 'b',
+        n: 'Jail cell',
+        d: 'Cages nearby players in iron bars.',
+        v: 1
+      },
+      {
         t: 'n',
-        n: 'Range',
+        n: 'Jail range',
         d: 'Only cage players within this distance of the host.',
         v: DEFAULT_RANGE,
         min: 1,
@@ -113,6 +137,9 @@
   function installGame(bridge) {
     let enabled = false;
     let range = DEFAULT_RANGE;
+    let killAIEnabled = true;
+    let jailCellEnabled = true;
+    let funnyAIEnabled = false;
     const lastCage = new Map();
 
     function xze() {
@@ -225,6 +252,138 @@
           });
         }
       }
+    }
+
+    function funnyHost() {
+      const R = xze()?.R;
+      return Boolean(R?.st === 'play' && R.net && String(R.net.host) === String(R.net.me));
+    }
+
+    function funnyTick() {
+      const z = xze();
+      const g = game();
+      const R = z?.R;
+      const AI = z?.AI;
+
+      if (
+        !enabled ||
+        !funnyAIEnabled ||
+        !z ||
+        !g?.player ||
+        !R ||
+        R.st !== 'play' ||
+        !R.net ||
+        String(R.net.host) !== String(R.net.me) ||
+        !AI ||
+        !Array.isArray(AI.bots)
+      ) {
+        return;
+      }
+
+      const t = performance.now() / 1000;
+      const hx = Number(g.player.pos[0]);
+      const hy = Number(g.player.pos[1]);
+      const hz = Number(g.player.pos[2]);
+
+      for (let index = 0; index < AI.bots.length; index += 1) {
+        const bot = AI.bots[index];
+
+        if (!bot || !bot.e) {
+          continue;
+        }
+
+        const e = bot.e;
+        const phase = bot.__solsticeFunnyPhase ?? (bot.__solsticeFunnyPhase = Math.random() * Math.PI * 2);
+        const speed = bot.__solsticeFunnySpeed ?? (bot.__solsticeFunnySpeed = 0.45 + Math.random() * 0.65);
+        const radius = bot.__solsticeFunnyRadius ?? (bot.__solsticeFunnyRadius = 2.5 + Math.random() * 2.5);
+        const theta = t * speed + phase;
+        const elevation = Math.sin(t * 0.85 + phase * 1.7) * 0.95;
+        const horizontal = Math.cos(elevation) * radius;
+        const x = hx + Math.cos(theta) * horizontal;
+        const y = hy + 1.15 + Math.sin(elevation) * radius;
+        const zPos = hz + Math.sin(theta) * horizontal;
+        const yaw = t * 2.4 + phase;
+        const pitch = -1.5;
+
+        bot.dead = false;
+        bot.sentDead = false;
+        bot.tok = false;
+        bot.next = Infinity;
+        bot.mag = 0;
+        bot.relT = Infinity;
+        bot.throwT = Infinity;
+        bot.path = null;
+        bot.lastSeen = null;
+        bot.tg = null;
+        bot.vis = false;
+
+        if (bot.nades) {
+          bot.nades.frag = 0;
+          bot.nades.flashbang = 0;
+        }
+
+        bot.pos = [x, y, zPos];
+        bot.yaw = yaw;
+        bot.pitch = pitch;
+
+        e.pos = [x, y, zPos];
+        e.prev = [x, y, zPos];
+        e.netPos = [x, y, zPos];
+        e.vel = [0, 0, 0];
+        e.lerpN = 0;
+        e.dead = false;
+        e.deathTime = 0;
+        e.invisible = false;
+        e.health = 1e9;
+        e.maxHealth = 1e9;
+        e.yaw = yaw;
+        e.bodyYaw = yaw;
+        e.prevBodyYaw = yaw;
+        e.netYaw = yaw;
+        e.netHead = yaw;
+        e.headYaw = yaw;
+        e.pitch = pitch;
+        e.netPitch = pitch;
+      }
+    }
+
+    function installFunnyAIHooks() {
+      const AI = xze()?.AI;
+
+      if (!AI || AI.__solsticeFunnyAI) {
+        return;
+      }
+
+      const originalTick = AI.tick;
+      const originalHurt = AI.hurtBot;
+
+      const tick = function funnyAITick(...args) {
+        if (enabled && funnyAIEnabled && funnyHost()) {
+          funnyTick();
+          return;
+        }
+
+        return originalTick.apply(this, args);
+      };
+
+      const hurt = function funnyAIHurt(...args) {
+        if (enabled && funnyAIEnabled && funnyHost()) {
+          return false;
+        }
+
+        return originalHurt.apply(this, args);
+      };
+
+      try {
+        Object.defineProperty(tick, '__solsticeFunnyAI', { value: true });
+        Object.defineProperty(hurt, '__solsticeFunnyAI', { value: true });
+      } catch {
+
+      }
+
+      AI.tick = tick;
+      AI.hurtBot = hurt;
+      AI.__solsticeFunnyAI = true;
     }
 
     function killAllAI() {
@@ -341,7 +500,15 @@
       }
 
       const now = performance.now();
-      const allBlocks = [];
+
+      if (funnyAIEnabled) {
+        funnyTick();
+      }
+
+      if (!jailCellEnabled) {
+        lastCage.clear();
+      } else {
+        const allBlocks = [];
 
       for (const remote of net.remotes.values()) {
         if (!remote || remote.left || remote.dead || remote.out) {
@@ -391,18 +558,23 @@
         allBlocks.push(...blocks);
       }
 
-      if (allBlocks.length) {
-        applyLocal(allBlocks);
-        broadcast(allBlocks);
+        if (allBlocks.length) {
+          applyLocal(allBlocks);
+          broadcast(allBlocks);
+        }
       }
 
-      try {
-        killAllAI();
-      } catch {
+      if (killAIEnabled) {
+        try {
+          killAllAI();
+        } catch {
 
+        }
       }
     }
 
+    installFunnyAIHooks();
+    setInterval(installFunnyAIHooks, 500);
     setInterval(tick, LOOP_MS);
 
     bridge.onConfig(CHANNEL, (data) => {
@@ -412,10 +584,15 @@
 
       enabled = Boolean(data.enabled);
       range = Math.max(1, Math.min(1000, Math.round(Number(data.range) || DEFAULT_RANGE)));
+      killAIEnabled = data.killAI !== false;
+      jailCellEnabled = data.jailCell !== false;
+      funnyAIEnabled = data.funnyAI === true;
 
       if (!enabled) {
         lastCage.clear();
         publishTestState();
+      } else if (!jailCellEnabled) {
+        lastCage.clear();
       }
 
     });
