@@ -4,8 +4,10 @@
   const CHANNEL = 'solstice-misc';
   const GAME_ORIGIN = 'https://www.bilibilitoy.com';
   const HEARTBEAT_MS = 500;
-  const DEFAULT_RANGE = 5;
+  const DEFAULT_RANGE = 32;
   const MAX_BLOCKS = 6000;
+  const IRON_BARS = 1381;
+  const STONE_BRICKS = 23;
   const LOOP_MS = 250;
 
   if (location.hostname === 'www.bilibilitoy.com' && location.pathname.startsWith('/toy/potatoepic/')) {
@@ -34,7 +36,7 @@
     }
 
     const rangeSetting = module.settings.find((setting) => setting.n === 'Range');
-    const range = Math.max(1, Math.min(10, Math.round(Number(rangeSetting?.v) || DEFAULT_RANGE)));
+    const range = Math.max(1, Math.min(1000, Math.round(Number(rangeSetting?.v) || DEFAULT_RANGE)));
     const now = performance.now();
     const config = {
       channel: CHANNEL,
@@ -63,7 +65,7 @@
   register({
     game: 'potatoepic',
     name: 'TEST',
-    desc: 'Host-only water field; kills all AI while hosting.',
+    desc: 'Host-only iron cage around nearby players; kills all AI while hosting.',
     cat: 'Misc',
     nm: { l: 'test', ls: 'test', n: 'TEST', ns: 'TEST' },
     disp: 'Range',
@@ -71,10 +73,10 @@
       {
         t: 'n',
         n: 'Range',
-        d: 'Radius of the water field placed around the host.',
+        d: 'Only cage players within this distance of the host.',
         v: DEFAULT_RANGE,
         min: 1,
-        max: 10,
+        max: 1000,
         step: 1
       }
     ],
@@ -111,6 +113,7 @@
   function installGame(bridge) {
     let enabled = false;
     let range = DEFAULT_RANGE;
+    const lastCage = new Map();
 
     function xze() {
       try {
@@ -128,39 +131,58 @@
       }
     }
 
-    function waterArea(origin, radius) {
-      const cx = Math.floor(Number(origin?.[0]));
-      const cy = Math.floor(Number(origin?.[1])) - 1;
-      const cz = Math.floor(Number(origin?.[2]));
+    function isAirBlock(g, x, y, z) {
+      try {
+        if (!g?.world || typeof g.world.getBlock !== 'function') {
+          return false;
+        }
 
-      if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(cz)) {
+        return Number(g.world.getBlock(x, y, z)) === 0;
+      } catch {
+        return false;
+      }
+    }
+
+    function cageFor(pos, g) {
+      const x = Math.floor(Number(pos?.[0]));
+      const y = Math.floor(Number(pos?.[1]));
+      const z = Math.floor(Number(pos?.[2]));
+
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
         return [];
       }
 
       const blocks = [];
-      const water = 7;
-      const radiusSquared = radius * radius;
+      const seen = new Set();
 
-      const add = (x, z) => {
-        if (blocks.length < MAX_BLOCKS) {
-          blocks.push([x, cy, z, water, 0]);
+      const add = (bx, by, bz, id) => {
+        const key = `${bx},${by},${bz}`;
+
+        if (seen.has(key) || !isAirBlock(g, bx, by, bz)) {
+          return;
         }
+
+        seen.add(key);
+        blocks.push([bx, by, bz, id, 0]);
       };
 
-      add(cx, cz);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          add(x + dx, y - 1, z + dz, STONE_BRICKS);
+          add(x + dx, y + 2, z + dz, STONE_BRICKS);
+        }
+      }
 
-      for (let ring = 1; ring <= radius && blocks.length < MAX_BLOCKS; ring++) {
-        for (let dx = -ring; dx <= ring && blocks.length < MAX_BLOCKS; dx++) {
-          for (let dz = -ring; dz <= ring && blocks.length < MAX_BLOCKS; dz++) {
-            if (Math.max(Math.abs(dx), Math.abs(dz)) !== ring) {
+      for (let dy = 0; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            if (dx === 0 && dz === 0) {
               continue;
             }
 
-            if (dx * dx + dz * dz > radiusSquared) {
-              continue;
+            if (Math.abs(dx) === 1 || Math.abs(dz) === 1) {
+              add(x + dx, y + dy, z + dz, IRON_BARS);
             }
-
-            add(cx + dx, cz + dz);
           }
         }
       }
@@ -290,9 +312,7 @@
       publishTestState();
 
       if (!enabled) {
-        return;
-      }
-      if (!enabled) {
+        lastCage.clear();
         return;
       }
 
@@ -308,7 +328,8 @@
         R.st !== 'play' ||
         !net ||
         net.me == null ||
-        String(net.host) !== String(net.me)
+        String(net.host) !== String(net.me) ||
+        !(net.remotes instanceof Map)
       ) {
         return;
       }
@@ -319,14 +340,61 @@
         return;
       }
 
-      const blocks = waterArea(origin, range);
+      const now = performance.now();
+      const allBlocks = [];
 
-      if (!blocks.length) {
-        return;
+      for (const remote of net.remotes.values()) {
+        if (!remote || remote.left || remote.dead || remote.out) {
+          continue;
+        }
+
+        const pos = remote.pos;
+
+        if (!Array.isArray(pos) || pos[1] <= -50) {
+          continue;
+        }
+
+        const distance = Math.hypot(
+          Number(pos[0]) - Number(origin[0]),
+          Number(pos[1]) - Number(origin[1]),
+          Number(pos[2]) - Number(origin[2])
+        );
+
+        if (!Number.isFinite(distance) || distance > range) {
+          continue;
+        }
+
+        const previous = lastCage.get(remote.pid);
+
+        if (previous) {
+          const dx = Number(pos[0]) - (previous.x + 0.5);
+          const dy = Number(pos[1]) - (previous.y + 0.5);
+          const dz = Number(pos[2]) - (previous.z + 0.5);
+
+          if (Math.abs(dx) <= 1.25 && Math.abs(dy) <= 1.25 && Math.abs(dz) <= 1.25) {
+            continue;
+          }
+        }
+
+        const blocks = cageFor(pos, g);
+
+        if (!blocks.length) {
+          continue;
+        }
+
+        lastCage.set(remote.pid, {
+          x: Math.floor(Number(pos[0])),
+          y: Math.floor(Number(pos[1])),
+          z: Math.floor(Number(pos[2])),
+          at: now
+        });
+        allBlocks.push(...blocks);
       }
 
-      applyLocal(blocks);
-      broadcast(blocks);
+      if (allBlocks.length) {
+        applyLocal(allBlocks);
+        broadcast(allBlocks);
+      }
 
       try {
         killAllAI();
@@ -343,9 +411,10 @@
       }
 
       enabled = Boolean(data.enabled);
-      range = Math.max(1, Math.min(10, Math.round(Number(data.range) || DEFAULT_RANGE)));
+      range = Math.max(1, Math.min(1000, Math.round(Number(data.range) || DEFAULT_RANGE)));
 
       if (!enabled) {
+        lastCage.clear();
         publishTestState();
       }
 
