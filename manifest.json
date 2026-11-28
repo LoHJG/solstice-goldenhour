@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Solstice",
   "short_name": "Solstice",
-  "version": "1.0.39",
+  "version": "1.0.40",
   "description": "Solstice utilities for GOLDEN HOUR and Potato Epic.",
   "minimum_chrome_version": "111",
   "icons": {
@@ -152,6 +152,7 @@
         "modules/Movement/FastStop.js",
         "modules/Player/GodMode.js",
         "modules/Player/CreativeInv.js",
+        "modules/Misc/TEST.js",
         "js/main.js",
         "js/commands.js",
         "extension/page.js"
@@ -191,7 +192,8 @@
         "modules/Movement/Fly.js",
         "modules/Movement/FastStop.js",
         "modules/Player/GodMode.js",
-        "modules/Player/CreativeInv.js"
+        "modules/Player/CreativeInv.js",
+        "modules/Misc/TEST.js"
       ],
       "run_at": "document_start",
       "all_frames": true,

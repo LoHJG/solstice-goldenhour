@@ -832,6 +832,7 @@
     let multiVolley = false;
     let originalGetBlock = null;
     let propsPlayer = null;
+    let netTickInstalled = false;
     let fireHooksInstalled = false;
     let auraMouseForced = false;
     let auraMouseSaved = false;
@@ -1007,6 +1008,56 @@
           clearFireAim();
         }
       });
+    }
+
+    function installNetTickHook() {
+      if (netTickInstalled) {
+        return;
+      }
+
+      const z = window.XZE;
+
+      if (!z?.Net || typeof z.Net.tick !== 'function') {
+        return;
+      }
+
+      const original = z.Net.tick;
+
+      z.Net.tick = function auraNetTick(...args) {
+        const game = args[0];
+
+        if (
+          !enabled ||
+          !target ||
+          !renderAim ||
+          !game?.player ||
+          game.player !== window.game?.player
+        ) {
+          return original.apply(this, args);
+        }
+
+        installProps(game.player);
+
+        const oldYaw = aimYaw;
+        const oldPitch = aimPitch;
+        aimYaw = renderAim.yaw;
+        aimPitch = renderAim.pitch;
+
+        try {
+          return original.apply(this, args);
+        } finally {
+          aimYaw = oldYaw;
+          aimPitch = oldPitch;
+        }
+      };
+
+      try {
+        Object.defineProperty(z.Net.tick, '__solsticeAuraNetTick', { value: true });
+      } catch {
+
+      }
+
+      netTickInstalled = true;
     }
 
     function installTriggerHook(game) {
@@ -1401,7 +1452,10 @@
       installProps(window.game?.player);
       installTriggerHook(window.game);
       installFireHooks(window.XZ);
+      installNetTickHook();
       setAuraMouseHeld(true);
     });
+
+    setInterval(installNetTickHook, 500);
   }
 })();
